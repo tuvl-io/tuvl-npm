@@ -26,7 +26,7 @@
  * ```
  */
 
-import type { TokenResponse } from "./types";
+import type { TokenResponse, MeResponse } from "./types";
 
 export interface TuvlAuthOptions {
   /** Base URL of the tuvl server. Trailing slash is stripped automatically. */
@@ -38,6 +38,46 @@ export class TuvlAuth {
 
   constructor(options: TuvlAuthOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
+  }
+
+  /**
+   * Decode the current token server-side and return the user's identity,
+   * role memberships (`groups`), and permission scopes.
+   *
+   * This is the correct way to read "who is logged in" and "what can they do"
+   * from the TypeScript SDK — Biscuit tokens are protobuf-encoded and cannot
+   * be decoded in pure JS without a WASM library.
+   *
+   * ```ts
+   * const me = await auth.getMe(token);
+   * console.log(me.user_id);        // "550e8400-e29b-41d4-a716-446655440000"
+   * console.log(me.groups);         // ["hr_manager", "member"]
+   * console.log(me.scopes);         // ["requisition:write", "candidate:read"]
+   *
+   * // Check for a specific role:
+   * if (me.groups.includes("hr_manager")) { ... }
+   *
+   * // Check for a scope:
+   * if (me.scopes.includes("candidate:read")) { ... }
+   * ```
+   *
+   * @throws if the token is invalid, expired, or revoked.
+   */
+  async getMe(token: string): Promise<MeResponse> {
+    const response = await fetch(`${this.baseUrl}/auth/me`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`tuvl getMe failed (HTTP ${response.status}): ${text}`);
+    }
+
+    return response.json() as Promise<MeResponse>;
   }
 
   /**

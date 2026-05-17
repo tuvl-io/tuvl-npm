@@ -11,6 +11,27 @@ export interface TokenResponse {
   token_type: string;
 }
 
+/**
+ * Decoded identity and permissions for the currently authenticated user.
+ * Returned by GET /auth/me.
+ */
+export interface MeResponse {
+  /** User UUID extracted from the `user()` Datalog fact in the token. */
+  user_id: string;
+  /**
+   * Role names extracted from all `group()` facts in the token.
+   * These are the role names assigned to the user in the IAM database.
+   * @example ["hr_manager", "member"]
+   */
+  groups: string[];
+  /**
+   * Permission scopes extracted from all `scope()` facts in the token.
+   * These determine what workflows and admin endpoints the user may call.
+   * @example ["requisition:write", "candidate:read"]
+   */
+  scopes: string[];
+}
+
 /** A single execution event streamed by the tuvl server. */
 export interface StepEvent {
   /** "step" during execution, "done" on success, "error" on failure. */

@@ -25,6 +25,7 @@ export { openGrpcStream } from "./grpc";
 export { Transport } from "./transport";
 export type {
   TokenResponse,
+  MeResponse,
   StepEvent,
   DoneEvent,
   ErrorEvent,
