@@ -5,6 +5,12 @@
  * manifest shapes to enable type-safe workflow invocation.
  */
 
+/** Returned by all /auth/* login and refresh endpoints. */
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
 /** A single execution event streamed by the tuvl server. */
 export interface StepEvent {
   /** "step" during execution, "done" on success, "error" on failure. */

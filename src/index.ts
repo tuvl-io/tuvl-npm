@@ -19,10 +19,12 @@
  */
 
 export { TuvlClient } from "./client";
+export { TuvlAuth } from "./auth";
 export { parseSseStream } from "./sse";
 export { openGrpcStream } from "./grpc";
 export { Transport } from "./transport";
 export type {
+  TokenResponse,
   StepEvent,
   DoneEvent,
   ErrorEvent,
