@@ -1,0 +1,63 @@
+{
+  "name": "@tuvl/client",
+  "version": "0.1.0",
+  "description": "TypeScript client SDK for the tuvl workflow orchestration engine.",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "author": "Sooraj <sooraj@tuvl.io>",
+  "homepage": "https://tuvl.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tuvl/tuvl"
+  },
+  "keywords": [
+    "workflow",
+    "orchestration",
+    "llm",
+    "agents",
+    "ai",
+    "fastapi",
+    "grpc-web",
+    "sse",
+    "tuvl"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@protobuf-ts/runtime": "^2.11.1",
+    "@types/node": "^20.0.0",
+    "tsup": "^8.1.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "peerDependencies": {
+    "@protobuf-ts/grpcweb-transport": "^2.9.0",
+    "@protobuf-ts/runtime-rpc": "^2.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@protobuf-ts/grpcweb-transport": {
+      "optional": true
+    },
+    "@protobuf-ts/runtime-rpc": {
+      "optional": true
+    }
+  }
+}
