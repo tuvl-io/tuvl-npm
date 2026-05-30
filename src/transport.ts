@@ -11,7 +11,8 @@ export interface TransportOptions {
 }
 
 export class Transport {
-  private readonly baseUrl: string;
+  /** Public so TuvlClient can forward it to the gRPC subtransport. */
+  readonly baseUrl: string;
   private defaultToken: string | undefined;
 
   constructor(options: TransportOptions) {

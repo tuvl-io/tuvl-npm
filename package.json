@@ -1,6 +1,6 @@
 {
   "name": "@tuvl/client",
-  "version": "0.1.0",
+  "version": "2026.2.1-beta.1",
   "description": "TypeScript client SDK for the tuvl workflow orchestration engine.",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

@@ -58,7 +58,7 @@ const result2 = await client.execute("screen-candidate", {
 
 ## Authentication
 
-The `TuvlAuth` class handles every `/auth/*` operation. You never have to construct raw `fetch` calls or deal with Biscuit token encoding.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies or Biscuit decoding logic. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
 
 ### `new TuvlAuth(options)`
 
@@ -71,6 +71,18 @@ The `TuvlAuth` class handles every `/auth/*` operation. You never have to constr
 ```ts
 const auth = new TuvlAuth({ baseUrl: "http://localhost:8000" });
 const { access_token } = await auth.loginWithPassword("me@example.com", "secret");
+```
+
+### Bootstrap (one-time IAM init)
+
+```ts
+// First call ever: creates the superadmin user and returns a token.
+// Every subsequent call rejects with HTTP 409.
+const { access_token } = await auth.bootstrap({
+  email: "admin@example.com",
+  password: "change-me-now",
+  admin_scope: "iam:admin",
+});
 ```
 
 ### OAuth2 login (browser)
@@ -144,15 +156,47 @@ await auth.logout(token);
 
 ### `client.execute(workflowName, options?)`
 
-Executes a workflow and returns `Promise<TOutput>` — the final output regardless of transport.
+Executes a workflow and returns `Promise<TOutput>` — **the unwrapped `data` payload, identical across REST / SSE / gRPC**.
 
 | Option | Type | Description |
 |---|---|---|
 | `payload` | `Record<string, unknown>` | JSON body matching the workflow's `input_schema` |
 | `onProgress` | `(event: StepEvent) => void` | Called for every step event (SSE / gRPC only) |
+| `onSuspended` | `(event: SuspendedEvent) => void` | Called once when the workflow hits a HITL step. After this fires the promise rejects with `TuvlWorkflowSuspendedError` |
 | `mode` | `"rest" \| "sse" \| "grpc"` | Force a specific transport |
 | `token` | `string` | Per-call token override |
 | `signal` | `AbortSignal` | Cancellation signal |
+
+#### Return-value contract
+
+| Outcome | `execute()` does |
+|---|---|
+| Workflow returns `success: true` | Resolves with `data` |
+| Workflow returns `success: false` | Rejects with `TuvlWorkflowError` (carries `.data` and `.error`) |
+| Workflow suspends at a HITL step | Rejects with `TuvlWorkflowSuspendedError` (carries `.suspended`) |
+| Engine raises an unhandled exception | Rejects with a plain `Error` |
+| HTTP / network failure | Rejects with a plain `Error` |
+
+```ts
+import { TuvlClient, TuvlWorkflowError, TuvlWorkflowSuspendedError } from "@tuvl/client";
+
+try {
+  const candidate = await client.execute<Candidate>("screen-candidate", {
+    payload: { id: 42 },
+    onProgress: (ev) => console.log(ev.step_id, ev.duration_ms),
+    onSuspended: (s) => renderHitlForm(s),
+  });
+  // candidate is the unwrapped data, fully typed
+} catch (err) {
+  if (err instanceof TuvlWorkflowSuspendedError) {
+    // err.suspended.ui, err.suspended.schema, err.suspended.instance_id …
+  } else if (err instanceof TuvlWorkflowError) {
+    // err.data is the partial snapshot, err.error is the structured failure
+  } else {
+    // transport / engine failure
+  }
+}
+```
 
 ### `client.getManifest(workflowName)`
 
@@ -180,13 +224,19 @@ import type {
   TokenResponse,    // { access_token, token_type }
   MeResponse,       // { user_id, groups, scopes }
   // Workflow execution
-  StepEvent,        // single step update
-  DoneEvent,        // terminal success
-  ErrorEvent,       // terminal failure
+  StepEvent,        // single step update (event_type: "step")
+  DoneEvent,        // terminal envelope { event_type:"done", success, data, error }
+  ErrorEvent,       // engine-level error { event_type:"error", message, details }
+  SuspendedEvent,   // HITL suspension { event_type:"suspended", instance_id, ui, schema, … }
+  RestEnvelope,     // shape of the plain REST response body
+  WorkflowErrorPayload, // shape of the .error field on failures
   WorkflowManifest, // shape of /api/_system/workflows/{name}
   ExecuteOptions,   // options for execute()
   TuvlClientOptions // constructor options
 } from "@tuvl/client";
+
+// Error classes are real classes — usable with `instanceof`
+import { TuvlWorkflowError, TuvlWorkflowSuspendedError } from "@tuvl/client";
 ```
 
 ---

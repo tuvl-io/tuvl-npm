@@ -1,8 +1,8 @@
 /**
  * Shared types for @tuvl/client.
  *
- * These mirror the Python-side StepEvent dataclass and the system_router
- * manifest shapes to enable type-safe workflow invocation.
+ * Mirrors the Python-side StepEvent dataclass, the SSE envelope produced by
+ * tuvl.core.engine.streaming, and the system_router manifest shapes.
  */
 
 /** Returned by all /auth/* login and refresh endpoints. */
@@ -18,50 +18,75 @@ export interface TokenResponse {
 export interface MeResponse {
   /** User UUID extracted from the `user()` Datalog fact in the token. */
   user_id: string;
-  /**
-   * Role names extracted from all `group()` facts in the token.
-   * These are the role names assigned to the user in the IAM database.
-   * @example ["hr_manager", "member"]
-   */
+  /** Role names from all `group()` facts — e.g. ["hr_manager", "member"]. */
   groups: string[];
-  /**
-   * Permission scopes extracted from all `scope()` facts in the token.
-   * These determine what workflows and admin endpoints the user may call.
-   * @example ["requisition:write", "candidate:read"]
-   */
+  /** Permission scopes from all `scope()` facts — e.g. ["candidate:read"]. */
   scopes: string[];
 }
 
-/** A single execution event streamed by the tuvl server. */
+/** A single execution event streamed by the tuvl server (SSE or gRPC). */
 export interface StepEvent {
-  /** "step" during execution, "done" on success, "error" on failure. */
-  event_type: "step" | "done" | "error";
-  /** Workflow step identifier (empty on "done"/"error"). */
+  event_type: "step";
   step_id: string;
-  /** Step kind: "functional" | "agent" | "mcp" | "api_call" | "router" | "response" | "model-op" */
   kind: string;
-  /** Routing signal returned by the step (e.g. "default", "yes", "no"). */
   signal: string;
-  /** Snapshot of all public (non-underscore) context keys after this step. */
   snapshot: Record<string, unknown>;
-  /** Elapsed wall time for this step in milliseconds. */
   duration_ms: number;
-  /** Error message (only on event_type === "error"). */
-  error_detail?: string;
+  error_detail?: string | null;
 }
 
-/** Terminal event emitted when all steps complete successfully. */
+/**
+ * Terminal event emitted when the workflow finishes (success OR business failure).
+ * Wire shape from tuvl.core.api.manager._sse_generator:
+ *   {success: true,  data: <output>,  error: null}
+ *   {success: false, data: <partial>, error: {...workflow error...}}
+ */
 export interface DoneEvent {
   event_type: "done";
-  /** Final response payload (output_key or _response). */
-  output: unknown;
+  success: boolean;
+  data: unknown;
+  error: WorkflowErrorPayload | null;
 }
 
-/** Terminal event emitted when the workflow fails. */
+/** Terminal event emitted when the workflow engine itself raised an exception. */
 export interface ErrorEvent {
   event_type: "error";
   message: string;
-  details?: string;
+  details?: string | null;
+}
+
+/** Terminal event emitted when a workflow hits a Human-in-the-Loop step. */
+export interface SuspendedEvent {
+  event_type: "suspended";
+  instance_id?: string;
+  paused_step_id?: string;
+  ui?: unknown;
+  schema?: unknown;
+  context_data?: Record<string, unknown>;
+  output_key?: string;
+  [key: string]: unknown;
+}
+
+/** Shape of the `error` field on a non-success DoneEvent / REST envelope. */
+export interface WorkflowErrorPayload {
+  code?: string;
+  message?: string;
+  details?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Shape of the plain REST response body returned by
+ * `POST <workflow_trigger_path>` (and the versioned variant).
+ *
+ * `execute()` unwraps this and returns just `data` on success, throwing
+ * `TuvlWorkflowError` on `success === false`.
+ */
+export interface RestEnvelope<TData = unknown> {
+  success: boolean;
+  status_code: number;
+  data: TData | null;
+  error: WorkflowErrorPayload | null;
 }
 
 /** Manifest for a single workflow (from GET /api/_system/workflows/{name}). */
@@ -80,52 +105,46 @@ export interface WorkflowManifest {
 export type WorkflowManifestMap = Record<string, Omit<WorkflowManifest, "name" | "steps">>;
 
 /** Options passed to TuvlClient.execute(). */
-export interface ExecuteOptions<TOutput = unknown> {
-  /**
-   * JSON body for the workflow trigger.  Must match the workflow's
-   * input_schema.
-   */
+export interface ExecuteOptions<_TOutput = unknown> {
   payload?: Record<string, unknown>;
-
-  /**
-   * Called for each StepEvent received from the server (SSE / gRPC).
-   * When provided alongside a workflow that has_slow_steps, the SDK
-   * automatically switches to streaming mode.
-   */
   onProgress?: (event: StepEvent) => void;
-
-  /**
-   * Force a specific transport:
-   * - "sse"  — HTTP SSE (default when onProgress is set and has_slow_steps)
-   * - "grpc" — gRPC-Web via sonora (requires peer dep)
-   * - "rest" — plain JSON POST (default when no onProgress)
-   */
+  onSuspended?: (event: SuspendedEvent) => void;
   mode?: "sse" | "grpc" | "rest";
-
-  /** Override the Bearer token for this specific call. */
   token?: string;
-
-  /** Abort signal to cancel the request/stream. */
   signal?: AbortSignal;
 }
 
 /** Options passed to TuvlClient constructor. */
 export interface TuvlClientOptions {
-  /**
-   * Base URL of the tuvl server (e.g. "http://localhost:8000").
-   * Trailing slash is stripped automatically.
-   */
   baseUrl: string;
-
-  /**
-   * Default Biscuit Bearer token injected on every request.
-   * Can be overridden per-call in ExecuteOptions.token.
-   */
   token?: string;
-
-  /**
-   * Time-to-live in milliseconds for cached workflow manifests.
-   * Defaults to 60 000 ms (1 minute).  Set to 0 to disable caching.
-   */
   manifestCacheTtl?: number;
+}
+
+// ── Errors ────────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown by `execute()` when a workflow finishes with `success: false`.
+ */
+export class TuvlWorkflowError extends Error {
+  readonly data: unknown;
+  readonly error: WorkflowErrorPayload | null;
+  constructor(message: string, data: unknown, error: WorkflowErrorPayload | null) {
+    super(message);
+    this.name = "TuvlWorkflowError";
+    this.data = data;
+    this.error = error;
+  }
+}
+
+/**
+ * Thrown by `execute()` when a workflow suspends at a Human-in-the-Loop step.
+ */
+export class TuvlWorkflowSuspendedError extends Error {
+  readonly suspended: SuspendedEvent;
+  constructor(suspended: SuspendedEvent) {
+    super(`tuvl workflow suspended at step '${suspended.paused_step_id ?? "?"}'`);
+    this.name = "TuvlWorkflowSuspendedError";
+    this.suspended = suspended;
+  }
 }

@@ -20,15 +20,23 @@
 
 export { TuvlClient } from "./client";
 export { TuvlAuth } from "./auth";
+export type { TuvlAuthOptions, BootstrapRequest } from "./auth";
 export { parseSseStream } from "./sse";
 export { openGrpcStream } from "./grpc";
 export { Transport } from "./transport";
+export {
+  TuvlWorkflowError,
+  TuvlWorkflowSuspendedError,
+} from "./types";
 export type {
   TokenResponse,
   MeResponse,
   StepEvent,
   DoneEvent,
   ErrorEvent,
+  SuspendedEvent,
+  WorkflowErrorPayload,
+  RestEnvelope,
   WorkflowManifest,
   WorkflowManifestMap,
   ExecuteOptions,

@@ -1,36 +1,26 @@
 /**
  * TuvlAuth — authentication helpers for @tuvl/client.
  *
- * Wraps the tuvl server's /auth/* endpoints so consumers never have to
- * manually construct form-encoded bodies or manage Bearer headers for auth
- * operations.
+ * Wraps the most common /auth/* endpoints (login, refresh, logout, who-am-I,
+ * OAuth start, bootstrap) so consumers never have to manually construct
+ * form-encoded bodies or manage Bearer headers for auth operations.
  *
- * @example
- * ```ts
- * import { TuvlAuth, TuvlClient } from "@tuvl/client";
- *
- * const auth = new TuvlAuth({ baseUrl: "http://localhost:8000" });
- *
- * // Password login
- * const { access_token } = await auth.loginWithPassword("admin@example.com", "secret");
- *
- * // Use the token in the workflow client
- * const client = new TuvlClient({ baseUrl: "http://localhost:8000", token: access_token });
- *
- * // OAuth: redirect the browser to the provider login page
- * window.location.href = auth.getOAuthLoginUrl("google");
- * // After the callback the server redirects to TUVL_OAUTH_UI_REDIRECT_URL?token=<biscuit>
- * // Extract it and hand it to TuvlClient:
- * const token = new URLSearchParams(window.location.search).get("token")!;
- * const client2 = new TuvlClient({ baseUrl: "http://localhost:8000", token });
- * ```
+ * Admin endpoints (user/role/scope CRUD, federation config) are NOT wrapped
+ * — call them directly via `Transport` or `fetch` with the token.
  */
 
-import type { TokenResponse, MeResponse } from "./types";
+import type { MeResponse, TokenResponse } from "./types";
 
 export interface TuvlAuthOptions {
   /** Base URL of the tuvl server. Trailing slash is stripped automatically. */
   baseUrl: string;
+}
+
+export interface BootstrapRequest {
+  email: string;
+  password: string;
+  /** Optional extra scope to grant the superadmin role on creation. */
+  admin_scope?: string;
 }
 
 export class TuvlAuth {
@@ -44,22 +34,9 @@ export class TuvlAuth {
    * Decode the current token server-side and return the user's identity,
    * role memberships (`groups`), and permission scopes.
    *
-   * This is the correct way to read "who is logged in" and "what can they do"
-   * from the TypeScript SDK — Biscuit tokens are protobuf-encoded and cannot
-   * be decoded in pure JS without a WASM library.
-   *
-   * ```ts
-   * const me = await auth.getMe(token);
-   * console.log(me.user_id);        // "550e8400-e29b-41d4-a716-446655440000"
-   * console.log(me.groups);         // ["hr_manager", "member"]
-   * console.log(me.scopes);         // ["requisition:write", "candidate:read"]
-   *
-   * // Check for a specific role:
-   * if (me.groups.includes("hr_manager")) { ... }
-   *
-   * // Check for a scope:
-   * if (me.scopes.includes("candidate:read")) { ... }
-   * ```
+   * Biscuit tokens are protobuf-encoded and cannot be decoded in pure JS,
+   * so this is the correct way to read "who is logged in" and "what can
+   * they do" from the TypeScript SDK.
    *
    * @throws if the token is invalid, expired, or revoked.
    */
@@ -83,11 +60,9 @@ export class TuvlAuth {
   /**
    * Exchange an email + password for a Biscuit bearer token.
    *
-   * Calls `POST /auth/token` with an `application/x-www-form-urlencoded` body
-   * (OAuth2 password-grant format). The `username` field must be the user's
+   * Calls `POST /auth/token` with an `application/x-www-form-urlencoded`
+   * body (OAuth2 password-grant). The `username` field must be the user's
    * email address.
-   *
-   * @throws if the credentials are incorrect or the account is inactive.
    */
   async loginWithPassword(email: string, password: string): Promise<TokenResponse> {
     const body = new URLSearchParams({ username: email, password });
@@ -110,29 +85,40 @@ export class TuvlAuth {
   }
 
   /**
-   * Return the URL the browser should navigate (or be redirected) to in order
-   * to start an OAuth2 login flow for the given provider.
+   * Create the first superadmin user (one-time IAM bootstrap).
    *
-   * Supported built-in providers: `"google"`, `"github"`, `"microsoft"`.
-   * Any provider configured in the `federation/` directory also works.
+   * Calls `POST /auth/bootstrap`. Returns 409 on every subsequent call
+   * once any user exists.
+   */
+  async bootstrap(req: BootstrapRequest): Promise<TokenResponse> {
+    const response = await fetch(`${this.baseUrl}/auth/bootstrap`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(req),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`tuvl bootstrap failed (HTTP ${response.status}): ${text}`);
+    }
+
+    return response.json() as Promise<TokenResponse>;
+  }
+
+  /**
+   * Return the URL the browser should navigate to in order to start an
+   * OAuth2 login flow for the given provider.
    *
-   * After the OAuth dance completes the server will:
-   * - Redirect the browser to `TUVL_OAUTH_UI_REDIRECT_URL?token=<biscuit_b64>`
-   *   if that environment variable is set on the server.
-   * - Return a JSON `{ access_token, token_type }` body otherwise (useful
-   *   for server-side / CLI flows).
+   * Supported built-ins: `"google"`, `"github"`, `"microsoft"`. Any
+   * provider configured in the project's `federation/` directory also
+   * works.
    *
-   * @example
-   * ```ts
-   * // In a React component:
-   * <button onClick={() => { window.location.href = auth.getOAuthLoginUrl("google"); }}>
-   *   Login with Google
-   * </button>
-   *
-   * // On the redirect page (TUVL_OAUTH_UI_REDIRECT_URL):
-   * const token = new URLSearchParams(window.location.search).get("token")!;
-   * const client = new TuvlClient({ baseUrl, token });
-   * ```
+   * After the OAuth dance the server either:
+   * - redirects to `TUVL_OAUTH_UI_REDIRECT_URL?token=<biscuit_b64>`, OR
+   * - returns a JSON `{access_token, token_type}` body (CLI / server flows).
    */
   getOAuthLoginUrl(provider: string): string {
     return `${this.baseUrl}/auth/oauth/${encodeURIComponent(provider)}/start`;
@@ -140,10 +126,7 @@ export class TuvlAuth {
 
   /**
    * Exchange a valid (non-expired, non-revoked) token for a fresh one.
-   *
    * The old token is immediately blacklisted — discard it after this call.
-   *
-   * @throws if the current token is invalid, expired, or the user is inactive.
    */
   async refresh(token: string): Promise<TokenResponse> {
     const response = await fetch(`${this.baseUrl}/auth/refresh`, {
@@ -163,14 +146,9 @@ export class TuvlAuth {
   }
 
   /**
-   * Revoke the given token (logout).
-   *
-   * After this call the token is blacklisted across all workers that share a
-   * Redis instance. The caller should delete any stored copy of the token.
-   *
-   * Resolves silently on success (HTTP 204).
-   *
-   * @throws if the token is already invalid or the server returns an error.
+   * Revoke the given token (logout). After this the token is blacklisted
+   * across all workers that share a Redis instance. Resolves silently on
+   * success (HTTP 204).
    */
   async logout(token: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/auth/logout`, {

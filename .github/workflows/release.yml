@@ -31,19 +31,13 @@ jobs:
           # Fetch full history so the tag is present for version checks
           fetch-depth: 0
 
-      # ── Verify tag matches package.json version ────────────────────────
-      - name: Verify tag matches package version
+      # ── Stamp version from tag ────────────────────────────────────────
+      - name: Stamp version from tag
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
           TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
-          # Strip leading 'v' from tag
           TAG_VERSION="${TAG#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)."
-            echo "Bump the version in package.json before tagging."
-            exit 1
-          fi
-          echo "Version check passed: $PKG_VERSION"
+          echo "Stamping version: $TAG_VERSION"
+          npm pkg set version="$TAG_VERSION"
 
       # ── Node.js + pnpm ────────────────────────────────────────────────
       - name: Setup pnpm

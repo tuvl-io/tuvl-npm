@@ -14,7 +14,21 @@
  *   service ExecutionService { rpc RunWorkflow(RunRequest) → stream StepEvent }
  */
 
-import type { StepEvent } from "./types";
+/**
+ * gRPC StepEvent on the wire. Unlike the typed SSE `StepEvent` (which is
+ * narrowed to `event_type: "step"`), this can carry "step" | "done" |
+ * "error" | "suspended" — the discriminator the servicer chose.
+ */
+export interface GrpcStepEvent {
+  event_type: "step" | "done" | "error" | "suspended";
+  step_id: string;
+  kind: string;
+  signal: string;
+  /** Decoded from `snapshot_json` on the wire. */
+  snapshot: Record<string, unknown>;
+  duration_ms: number;
+  error_detail?: string;
+}
 
 export interface GrpcRunOptions {
   baseUrl: string;
@@ -28,14 +42,14 @@ export interface GrpcRunOptions {
 /**
  * Open a gRPC-Web server-streaming call to ExecutionService.RunWorkflow.
  *
- * Yields StepEvent objects (using snapshot_json already parsed into
- * `snapshot: Record<string, unknown>`).
+ * Yields `GrpcStepEvent` objects (with `snapshot_json` already parsed into
+ * `snapshot`).  The caller decides what each `event_type` means.
  *
  * Throws if the peer deps are not installed.
  */
 export async function* openGrpcStream(
   options: GrpcRunOptions,
-): AsyncGenerator<StepEvent> {
+): AsyncGenerator<GrpcStepEvent> {
   // Dynamically import peer deps — zero cost when not used
   let GrpcWebFetchTransport: { new (opts: { baseUrl: string }): unknown };
   try {
@@ -68,7 +82,7 @@ export async function* openGrpcStream(
     return writer.finish();
   }
 
-  function decodeStepEvent(bytes: Uint8Array): StepEvent {
+  function decodeStepEvent(bytes: Uint8Array): GrpcStepEvent {
     const reader = new BinaryReader(bytes);
     let eventType = "";
     let stepId = "";
@@ -101,8 +115,12 @@ export async function* openGrpcStream(
       }
     }
 
+    // Default to "step" if the server didn't stamp event_type (shouldn't happen
+    // — every emitted message sets the field — but stay defensive).
+    const et = (eventType || "step") as GrpcStepEvent["event_type"];
+
     return {
-      event_type: eventType as StepEvent["event_type"],
+      event_type: et,
       step_id: stepId,
       kind,
       signal,
@@ -143,7 +161,11 @@ export async function* openGrpcStream(
   for await (const responseBytes of call.responses) {
     const event = decodeStepEvent(responseBytes as Uint8Array);
     yield event;
-    if (event.event_type === "done" || event.event_type === "error") {
+    if (
+      event.event_type === "done" ||
+      event.event_type === "error" ||
+      event.event_type === "suspended"
+    ) {
       break;
     }
   }
