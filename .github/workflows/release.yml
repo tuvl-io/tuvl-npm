@@ -1,0 +1,86 @@
+name: Release to npm
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (must match a git tag, e.g. v1.2.3)"
+        required: true
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build & publish @tuvl/client
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write   # required for npm provenance
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so the tag is present for version checks
+          fetch-depth: 0
+
+      # ── Verify tag matches package.json version ────────────────────────
+      - name: Verify tag matches package version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          # Strip leading 'v' from tag
+          TAG_VERSION="${TAG#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)."
+            echo "Bump the version in package.json before tagging."
+            exit 1
+          fi
+          echo "Version check passed: $PKG_VERSION"
+
+      # ── Node.js + pnpm ────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: "pnpm"
+
+      # ── Install ───────────────────────────────────────────────────────
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── Quality gates ─────────────────────────────────────────────────
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # ── Build ─────────────────────────────────────────────────────────
+      - name: Build
+        run: pnpm build
+
+      # ── Publish ───────────────────────────────────────────────────────
+      - name: Publish to npm (with provenance)
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [[ "$PKG_VERSION" == *"-beta."* || "$PKG_VERSION" == *"-alpha."* || "$PKG_VERSION" == *"-rc."* ]]; then
+            pnpm publish --no-git-checks --access public --provenance --tag beta
+          else
+            pnpm publish --no-git-checks --access public --provenance
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
