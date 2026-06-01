@@ -79,9 +79,9 @@ jobs:
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
           if [[ "$PKG_VERSION" == *"-beta."* || "$PKG_VERSION" == *"-alpha."* || "$PKG_VERSION" == *"-rc."* ]]; then
-            npm publish --access public --tag beta
+            npm publish --access public --no-provenance --tag beta
           else
-            npm publish --access public
+            npm publish --access public --no-provenance
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
