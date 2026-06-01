@@ -4,6 +4,7 @@
 > **Purpose:** Deterministic instruction set for generating correct, production-ready TypeScript that calls a running TUVL server.
 > **Version of contract:** Derived from `@tuvl/client@2026.2.1-beta.1` — this manual is the ground truth for code generation; never invent methods, options, or fields absent here.
 > **Companion:** The TUVL server-side contract is documented in `docs/TUVL_AGENTIC_MANUAL.md` inside the `tuvl` Python package. The SDK mirrors that contract exactly.
+> **Last updated:** 2026-06-01
 
 ---
 
@@ -102,6 +103,29 @@ import type {
 | ESM (`import`) | `dist/index.mjs` |
 | CJS (`require`) | `dist/index.js` |
 | TypeScript / bundler | `dist/index.d.ts` / `dist/index.d.mts` |
+
+### 3.4 Dev toolchain
+
+The SDK is built and tested with the following toolchain. Agents generating contributions, CI config, or Dockerfile instructions must target these exact versions.
+
+| Tool | Version | Role |
+|---|---|---|
+| TypeScript | `^6.0.0` (6.0.3) | Type checking + DTS generation |
+| tsup | `^8.1.0` (8.5.1) | Dual ESM + CJS bundler (esbuild-based) |
+| vite | `^8.0.0` (8.0.16) | Peer required by vitest 4 |
+| vitest | `^4.0.0` (4.1.8) | Unit test runner |
+| Node.js | 22 | Runtime for CI and local dev |
+| pnpm | 10 | Package manager (lockfile is pnpm format) |
+
+**Key config files:**
+
+| File | Purpose |
+|---|---|
+| `tsconfig.json` | `target: ES2020`, `module: ESNext`, `moduleResolution: bundler`, `ignoreDeprecations: "6.0"` |
+| `tsup.config.mts` | `entry: ["src/index.ts"]`, `format: ["esm", "cjs"]`, `dts: true`, `target: es2020` |
+| `vitest.config.mts` | `environment: node`, `globals: true`, `include: ["src/**/*.test.ts"]` |
+
+> **Note on `.mts` config files:** Both `tsup.config.mts` and `vitest.config.mts` use the `.mts` extension (not `.ts`). This forces Node.js to load them as ES modules, which in turn makes Vite load its ESM entry point instead of the deprecated CJS Node API. Do **not** rename these to `.ts`.
 
 ---
 
@@ -515,6 +539,8 @@ These are **hard constraints**. Violating any produces incorrect or unsafe TypeS
 13. **Do not hardcode `baseUrl`.** Read it from environment configuration (`process.env.TUVL_BASE_URL`, `import.meta.env.VITE_TUVL_BASE_URL`, etc.). Never embed production server URLs in source code.
 14. **Do not log `access_token` values.** Biscuit tokens are opaque bearer credentials. Call `auth.getMe(token)` when you need user identity data — never decode or parse the token string directly.
 15. **Use `ExecuteVersionedOptions` (not `ExecuteOptions`) for `executeVersioned()` calls.** While `ExecuteVersionedOptions` extends `ExecuteOptions`, using the correct type makes the `version` field explicit and prevents type-widening mistakes.
+16. **Config files must remain `.mts`, not `.ts`.** `tsup.config.mts` and `vitest.config.mts` use `.mts` to force ESM loading. Renaming them to `.ts` re-introduces the Vite CJS Node API deprecation warning and will break CI.
+17. **`"ignoreDeprecations": "6.0"` in `tsconfig.json` is intentional.** It suppresses a TypeScript 6 error caused by tsup's DTS builder passing the deprecated `baseUrl` option internally. Do not remove it until tsup 9+ ships with a TS 6-compatible DTS pipeline.
 
 ---
 
@@ -625,3 +651,39 @@ Need to …
 ```
 
 End of manual.
+
+---
+
+## Appendix A — Test Suite
+
+The SDK ships with a full unit test suite (`vitest 4`, `environment: node`, no real network calls — all fetch calls are stubbed).
+
+| File | Tests | What is covered |
+|---|---|---|
+| `src/types.test.ts` | 6 | `TuvlWorkflowError` and `TuvlWorkflowSuspendedError` — construction, `.name`, `.data`, `.error`, `.suspended` |
+| `src/transport.test.ts` | 11 | `Transport.post/get/postStream/setToken` — auth header injection, error status handling, baseUrl normalisation |
+| `src/auth.test.ts` | 13 | All `TuvlAuth` methods — success + HTTP error paths, form-encoding, URL encoding, 204 logout |
+| `src/sse.test.ts` | 10 | `parseSseStream` — step/done/error/suspended frames, CRLF, non-JSON skip, terminal-frame stop, abort signal |
+| `src/client.test.ts` | 21 | `TuvlClient` REST/SSE execute, SSE auto-upgrade, error/suspended/engine-error rejection, manifest cache/invalidation, `executeVersioned`, `resumeWorkflow`, `setToken` |
+
+Run with:
+
+```bash
+pnpm test          # single run
+pnpm test:watch    # watch mode
+```
+
+All tests run in Node 22, use `vi.stubGlobal("fetch", mockFetch)` for fetch stubbing, and are reset in `beforeEach`. No integration server is required.
+
+---
+
+## Appendix B — Changelog
+
+### 2026-06-01
+
+- **Toolchain upgrade:** vitest `1.6.1` → `4.1.8`; TypeScript `5.9.3` → `6.0.3`; `@types/node` `20` → `25`; added `vite@^8.0.0` as explicit dev dep (required peer of vitest 4).
+- **Config files renamed to `.mts`:** `tsup.config.ts` and `vitest.config.ts` → `.mts`. Fixes the "CJS build of Vite's Node API is deprecated" CI warning by forcing ESM config loading.
+- **`ignoreDeprecations: "6.0"` added to `tsconfig.json`:** Suppresses TS 6 error from tsup's internal `baseUrl` usage during DTS generation.
+- **CI updated:** `pnpm/action-setup@v3` → `@v4` (pnpm 10); `node-version: "20"` → `"22"`.
+- **Test suite added:** 61 unit tests across 5 files covering all SDK modules (see Appendix A).
+- **`--passWithNoTests` flag added to `pnpm test`:** Prevents CI exit-code 1 on repositories with no test files yet.
