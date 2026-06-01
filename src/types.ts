@@ -114,6 +114,29 @@ export interface ExecuteOptions<_TOutput = unknown> {
   signal?: AbortSignal;
 }
 
+/** Options passed to TuvlClient.executeVersioned(). */
+export interface ExecuteVersionedOptions<_TOutput = unknown> extends ExecuteOptions<_TOutput> {
+  /** The workflow's schema_version, e.g. "v2". Calls /{version}/run/{name}. */
+  version: string;
+}
+
+/** Body sent to POST /api/workflows/resume. */
+export interface ResumeRequest {
+  instance_id: string;
+  human_input?: Record<string, unknown>;
+}
+
+/** Options passed to TuvlClient.resumeWorkflow(). */
+export interface ResumeOptions<_TOutput = unknown> {
+  instanceId: string;
+  humanInput?: Record<string, unknown>;
+  onProgress?: (event: StepEvent) => void;
+  onSuspended?: (event: SuspendedEvent) => void;
+  mode?: "sse" | "rest";
+  token?: string;
+  signal?: AbortSignal;
+}
+
 /** Options passed to TuvlClient constructor. */
 export interface TuvlClientOptions {
   baseUrl: string;

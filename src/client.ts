@@ -27,6 +27,9 @@ import {
   type DoneEvent,
   type ErrorEvent,
   type ExecuteOptions,
+  type ExecuteVersionedOptions,
+  type ResumeOptions,
+  type ResumeRequest,
   type RestEnvelope,
   type StepEvent,
   type SuspendedEvent,
@@ -149,6 +152,130 @@ export class TuvlClient {
       { token, signal },
     );
     return this._unwrapRest<TOutput>(envelope, manifest.name);
+  }
+
+  /**
+   * Execute a specific version of a workflow via `/{version}/run/{name}`.
+   *
+   * Useful when you want to pin to a particular schema_version without
+   * relying on the currently-active default trigger path.
+   *
+   * @throws {TuvlWorkflowError}          when the workflow returns success=false
+   * @throws {TuvlWorkflowSuspendedError} when the workflow suspends at HITL
+   * @throws {Error}                      on transport / engine failures
+   */
+  async executeVersioned<TOutput = unknown>(
+    workflowName: string,
+    version: string,
+    options: ExecuteVersionedOptions<TOutput> | ExecuteOptions<TOutput> = {},
+  ): Promise<TOutput> {
+    const { payload = {}, onProgress, onSuspended, mode, token, signal } = options;
+    const triggerPath = `/${version}/run/${workflowName}`;
+
+    // Best-effort: fetch manifest to determine has_slow_steps for SSE auto-upgrade.
+    let cachedManifest: WorkflowManifest | undefined;
+    try {
+      cachedManifest = await this.getManifest(workflowName, { token, signal });
+    } catch {
+      // If manifest fetch fails, fall back to the caller's explicit mode.
+    }
+
+    const syntheticManifest: WorkflowManifest = {
+      name: workflowName,
+      trigger_path: triggerPath,
+      trigger_method: "POST",
+      has_slow_steps: cachedManifest?.has_slow_steps ?? false,
+      slow_kinds_present: cachedManifest?.slow_kinds_present ?? [],
+      required_scope: cachedManifest?.required_scope ?? null,
+      required_group: cachedManifest?.required_group ?? null,
+      steps: cachedManifest?.steps ?? [],
+    };
+
+    const useSse =
+      mode === "sse" ||
+      (mode !== "rest" && mode !== "grpc" && !!onProgress && syntheticManifest.has_slow_steps);
+
+    if (mode === "grpc") {
+      return this._executeGrpc<TOutput>(
+        syntheticManifest,
+        payload,
+        onProgress,
+        onSuspended,
+        token,
+        signal,
+      );
+    }
+
+    if (useSse) {
+      return this._executeSse<TOutput>(
+        syntheticManifest,
+        payload,
+        onProgress,
+        onSuspended,
+        token,
+        signal,
+      );
+    }
+
+    const envelope = await this.transport.post<Record<string, unknown>, RestEnvelope<TOutput>>(
+      triggerPath,
+      payload,
+      { token, signal },
+    );
+    return this._unwrapRest<TOutput>(envelope, workflowName);
+  }
+
+  /**
+   * Resume a HITL-suspended workflow instance.
+   *
+   * After the workflow throws `TuvlWorkflowSuspendedError`, capture the
+   * `event.instance_id` from the suspended event and pass it here along with
+   * the human-provided data to continue execution.
+   *
+   * @throws {TuvlWorkflowError}          when the resumed workflow returns success=false
+   * @throws {TuvlWorkflowSuspendedError} when the workflow suspends again at another HITL step
+   * @throws {Error}                      on transport / engine failures
+   */
+  async resumeWorkflow<TOutput = unknown>(
+    options: ResumeOptions<TOutput>,
+  ): Promise<TOutput> {
+    const { instanceId, humanInput = {}, onProgress, onSuspended, mode, token, signal } = options;
+
+    const body: ResumeRequest = {
+      instance_id: instanceId,
+      human_input: humanInput,
+    };
+
+    if (mode === "sse" || (mode !== "rest" && !!onProgress)) {
+      // Wrap in a synthetic manifest so we can reuse _executeSse.
+      // The server's resume SSE path mirrors the trigger SSE path.
+      const syntheticManifest: WorkflowManifest = {
+        name: `(resumed:${instanceId})`,
+        trigger_path: "/api/workflows/resume",
+        trigger_method: "POST",
+        has_slow_steps: true,
+        slow_kinds_present: [],
+        required_scope: null,
+        required_group: null,
+        steps: [],
+      };
+      return this._executeSse<TOutput>(
+        syntheticManifest,
+        body as unknown as Record<string, unknown>,
+        onProgress,
+        onSuspended,
+        token,
+        signal,
+      );
+    }
+
+    // Plain REST resume — returns RestEnvelope<TOutput>.
+    const envelope = await this.transport.post<ResumeRequest, RestEnvelope<TOutput>>(
+      "/api/workflows/resume",
+      body,
+      { token, signal },
+    );
+    return this._unwrapRest<TOutput>(envelope, `(resumed:${instanceId})`);
   }
 
   // ── SSE transport ─────────────────────────────────────────────────────────

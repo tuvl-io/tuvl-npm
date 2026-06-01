@@ -2,7 +2,7 @@
 
 TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
 
-Supports three transports from a single `execute()` call — plain REST, Server-Sent Events, and gRPC-Web — with automatic transport selection based on the workflow's streaming hints.
+Supports three transports — plain REST, Server-Sent Events, and gRPC-Web — with automatic transport selection based on the workflow's streaming hints. Also ships first-class support for Human-in-the-Loop (HITL) resumption and explicit version pinning.
 
 ---
 
@@ -198,9 +198,65 @@ try {
 }
 ```
 
+### `client.executeVersioned(workflowName, version, options?)`
+
+Runs a workflow pinned to a specific schema version (`/{version}/run/{name}`) without relying on the server's active default trigger path.  Accepts the same options as `execute()`.
+
+```ts
+// Always run the v2 contract of "screen-candidate", even if v3 is the default
+const result = await client.executeVersioned("screen-candidate", "v2", {
+  payload: { id: 42 },
+  onProgress: (ev) => console.log(ev.step_id),
+});
+```
+
+### `client.resumeWorkflow(options)`
+
+Resumes a workflow instance that was suspended at a Human-in-the-Loop (HITL) step.
+
+| Option | Type | Description |
+|---|---|---|
+| `instanceId` | `string` | UUID from `SuspendedEvent.instance_id` |
+| `humanInput` | `Record<string, unknown>` | Operator-supplied data to inject into the paused step |
+| `onProgress` | `(event: StepEvent) => void` | Step events after the resume point (SSE mode) |
+| `onSuspended` | `(event: SuspendedEvent) => void` | Called if the workflow suspends again at another HITL step |
+| `mode` | `"rest" \| "sse"` | Force a specific transport (default: REST, SSE when `onProgress` is provided) |
+| `token` | `string` | Per-call token override |
+| `signal` | `AbortSignal` | Cancellation signal |
+
+```ts
+import {
+  TuvlClient,
+  TuvlWorkflowSuspendedError,
+  type SuspendedEvent,
+} from "@tuvl/client";
+
+let suspendedEvent: SuspendedEvent | undefined;
+
+// First pass — workflow suspends at an approval step
+try {
+  await client.execute("hire-candidate", {
+    payload: { candidate_id: 99 },
+    onSuspended: (s) => { suspendedEvent = s; },
+  });
+} catch (err) {
+  if (!(err instanceof TuvlWorkflowSuspendedError)) throw err;
+}
+
+// Human fills in the form …
+const decision = { approved: true, note: "Strong fit" };
+
+// Second pass — resume from where it paused
+const finalResult = await client.resumeWorkflow({
+  instanceId: suspendedEvent!.instance_id,
+  humanInput: decision,
+  onProgress: (ev) => console.log(`[resumed] ${ev.step_id}`),
+});
+```
+
 ### `client.getManifest(workflowName)`
 
-Fetches (and caches) the workflow manifest from `/api/_system/workflows/{name}`. Called automatically by `execute()`.
+Fetches (and caches) the workflow manifest from `/api/_system/workflows/{name}`. Called automatically by `execute()` and `executeVersioned()`.
 
 ### `client.listWorkflows()`
 
@@ -221,18 +277,21 @@ Clears the manifest cache for one workflow, or all if no name is given.
 ```ts
 import type {
   // Auth
-  TokenResponse,    // { access_token, token_type }
-  MeResponse,       // { user_id, groups, scopes }
+  TokenResponse,        // { access_token, token_type }
+  MeResponse,           // { user_id, groups, scopes }
   // Workflow execution
-  StepEvent,        // single step update (event_type: "step")
-  DoneEvent,        // terminal envelope { event_type:"done", success, data, error }
-  ErrorEvent,       // engine-level error { event_type:"error", message, details }
-  SuspendedEvent,   // HITL suspension { event_type:"suspended", instance_id, ui, schema, … }
-  RestEnvelope,     // shape of the plain REST response body
+  StepEvent,            // single step update (event_type: "step")
+  DoneEvent,            // terminal envelope { event_type:"done", success, data, error }
+  ErrorEvent,           // engine-level error { event_type:"error", message, details }
+  SuspendedEvent,       // HITL suspension { event_type:"suspended", instance_id, ui, schema, … }
+  RestEnvelope,         // shape of the plain REST response body
   WorkflowErrorPayload, // shape of the .error field on failures
-  WorkflowManifest, // shape of /api/_system/workflows/{name}
-  ExecuteOptions,   // options for execute()
-  TuvlClientOptions // constructor options
+  WorkflowManifest,     // shape of /api/_system/workflows/{name}
+  ExecuteOptions,       // options for execute()
+  ExecuteVersionedOptions, // options for executeVersioned() — extends ExecuteOptions + version
+  ResumeOptions,        // options for resumeWorkflow()
+  ResumeRequest,        // raw body sent to POST /api/workflows/resume
+  TuvlClientOptions,    // constructor options
 } from "@tuvl/client";
 
 // Error classes are real classes — usable with `instanceof`

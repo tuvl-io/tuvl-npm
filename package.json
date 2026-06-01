@@ -2,16 +2,22 @@
   "name": "@tuvl/client",
   "version": "2026.2.1-beta.1",
   "description": "TypeScript client SDK for the tuvl workflow orchestration engine.",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     }
   },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
@@ -20,8 +26,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts"
+    "typecheck": "tsc --noEmit"
   },
   "author": "Sooraj <sooraj@tuvl.io>",
   "homepage": "https://tuvl.io",

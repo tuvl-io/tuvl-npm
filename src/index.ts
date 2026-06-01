@@ -40,5 +40,8 @@ export type {
   WorkflowManifest,
   WorkflowManifestMap,
   ExecuteOptions,
+  ExecuteVersionedOptions,
+  ResumeOptions,
+  ResumeRequest,
   TuvlClientOptions,
 } from "./types";

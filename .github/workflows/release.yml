@@ -34,7 +34,11 @@ jobs:
       # ── Stamp version from tag ────────────────────────────────────────
       - name: Stamp version from tag
         run: |
-          TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
           TAG_VERSION="${TAG#v}"
           echo "Stamping version: $TAG_VERSION"
           npm pkg set version="$TAG_VERSION"
