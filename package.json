@@ -32,7 +32,7 @@
   "homepage": "https://tuvl.io",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tuvl-io/tuvl-npm.git"
+    "url": "git+https://github.com/tuvl-io/tuvl-npm.git"
   },
   "publishConfig": {
     "access": "public",
