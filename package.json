@@ -32,7 +32,11 @@
   "homepage": "https://tuvl.io",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tuvl/tuvl"
+    "url": "https://github.com/tuvl-io/tuvl-npm.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "keywords": [
     "workflow",
