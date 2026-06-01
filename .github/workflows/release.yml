@@ -72,11 +72,16 @@ jobs:
         run: pnpm build
 
       # ── Publish ───────────────────────────────────────────────────────
+      # Use `npm publish` (not pnpm) so that actions/setup-node's .npmrc auth
+      # token is used directly — pnpm proxies through npm but does not forward
+      # NODE_AUTH_TOKEN, which causes E404 on scoped packages.
       - name: Publish to npm (with provenance)
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
           if [[ "$PKG_VERSION" == *"-beta."* || "$PKG_VERSION" == *"-alpha."* || "$PKG_VERSION" == *"-rc."* ]]; then
-            pnpm publish --no-git-checks --access public --provenance --tag beta
+            npm publish --access public --provenance --tag beta
           else
-            pnpm publish --no-git-checks --access public --provenance
+            npm publish --access public --provenance
           fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
