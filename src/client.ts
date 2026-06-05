@@ -19,6 +19,7 @@
  * workflow.  TTL defaults to 60 s and is configurable.
  */
 
+import { CrudClient } from "./crud";
 import { parseSseStream } from "./sse";
 import { Transport } from "./transport";
 import {
@@ -421,5 +422,40 @@ export class TuvlClient {
     // success===true OR envelope-shape mismatch (no `success` key) → return data
     // when present, else the whole body.
     return (envelope.data ?? (envelope as unknown)) as TOutput;
+  }
+
+  // ── CRUD ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Return a typed CRUD client for a tuvl model endpoint.
+   *
+   * The returned client targets `/models/{modelName}/` and shares the
+   * same transport (base URL + auth token) as this TuvlClient instance.
+   *
+   * @example
+   * ```ts
+   * // List all candidates
+   * const all = await client.crud("candidate").list();
+   *
+   * // With filters + embedded relations
+   * const results = await client.crud("candidate").list({
+   *   filters: { stage: "screening" },
+   *   include: ["posting"],
+   *   limit: 50,
+   * });
+   *
+   * // Get one record
+   * const c = await client.crud("candidate").get("uuid-here");
+   *
+   * // Strongly-typed variant
+   * const c2 = await client
+   *   .crud<CandidateRead, CandidateCreate>("candidate")
+   *   .create({ name: "Alice", email: "alice@example.com" });
+   * ```
+   */
+  crud<TRead = unknown, TCreate = Partial<TRead>, TUpdate = Partial<TRead>>(
+    modelName: string,
+  ): CrudClient<TRead, TCreate, TUpdate> {
+    return new CrudClient<TRead, TCreate, TUpdate>(this.transport, modelName);
   }
 }

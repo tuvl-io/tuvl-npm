@@ -144,6 +144,39 @@ export interface TuvlClientOptions {
   manifestCacheTtl?: number;
 }
 
+// ── CRUD types ────────────────────────────────────────────────────────────────
+
+/**
+ * Options for listing records from a CRUD model endpoint.
+ *
+ * `filters` maps to bracket-notation query params: `filter[key]=value`.
+ * `include` maps to `?include=relation1,relation2` for eager-loading relations.
+ */
+export interface CrudListOptions {
+  limit?: number;
+  offset?: number;
+  /** Server-side field filters: { stage: "screening" } → `?filter[stage]=screening` */
+  filters?: Record<string, string>;
+  /** Relation names to embed: ["posting"] → `?include=posting` */
+  include?: string[];
+  token?: string;
+  signal?: AbortSignal;
+}
+
+/** Options for retrieving a single CRUD record. */
+export interface CrudGetOptions {
+  /** Relation names to embed: ["candidate"] → `?include=candidate` */
+  include?: string[];
+  token?: string;
+  signal?: AbortSignal;
+}
+
+/** Options for create / update / delete calls. */
+export interface CrudMutateOptions {
+  token?: string;
+  signal?: AbortSignal;
+}
+
 // ── Errors ────────────────────────────────────────────────────────────────────
 
 /**
