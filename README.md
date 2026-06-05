@@ -2,7 +2,7 @@
 
 TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
 
-Supports three transports — plain REST, Server-Sent Events, and gRPC-Web — with automatic transport selection based on the workflow's streaming hints. Also ships first-class support for Human-in-the-Loop (HITL) resumption and explicit version pinning.
+Supports three transports — plain REST, Server-Sent Events, and gRPC-Web — with automatic transport selection based on the workflow's streaming hints. Also ships first-class support for Human-in-the-Loop (HITL) resumption, explicit version pinning, and typed CRUD access to tuvl model endpoints.
 
 ---
 
@@ -272,6 +272,70 @@ Clears the manifest cache for one workflow, or all if no name is given.
 
 ---
 
+## CRUD — model data access
+
+`client.crud(modelName)` returns a `CrudClient` that targets the auto-generated REST endpoints at `/models/{modelname}/`. The token and base URL are shared with the parent `TuvlClient`.
+
+```ts
+import { TuvlClient } from "@tuvl/client";
+
+const client = new TuvlClient({ baseUrl: "http://localhost:8000", token });
+
+// List all candidates (default limit: 100)
+const all = await client.crud("candidate").list();
+
+// Filter + embed relations
+const screened = await client.crud("candidate").list({
+  filters: { stage: "screening" },
+  include: ["posting"],
+  limit: 50,
+  offset: 0,
+});
+
+// Get one record by UUID
+const c = await client.crud("candidate").get("uuid-here");
+
+// Get one with embedded relations
+const cFull = await client.crud("candidate").get("uuid-here", {
+  include: ["posting", "assessments"],
+});
+
+// Create
+const created = await client.crud<CandidateRead, CandidateCreate>("candidate")
+  .create({ name: "Alice", email: "alice@example.com", stage: "applied" });
+
+// Partial update (PATCH — only the fields you pass are changed)
+const updated = await client.crud("candidate").update("uuid", { stage: "interview" });
+
+// Delete (resolves void on HTTP 204)
+await client.crud("candidate").delete("uuid");
+```
+
+### `client.crud<TRead, TCreate, TUpdate>(modelName)`
+
+Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased automatically.
+
+### `CrudListOptions`
+
+| Option | Type | Description |
+|---|---|---|
+| `limit` | `number` | Max records to return (server default: 100, max: 1000) |
+| `offset` | `number` | Pagination offset |
+| `filters` | `Record<string, string>` | Field filters: `{ stage: "screening" }` → `?filter[stage]=screening` |
+| `include` | `string[]` | Relation names to embed: `["posting"]` → `?include=posting` |
+| `token` | `string` | Per-call token override |
+| `signal` | `AbortSignal` | Cancellation signal |
+
+### Auth scopes required
+
+| Operation | Required scope |
+|---|---|
+| `list()` / `get()` | `{modelname}:read` |
+| `create()` / `update()` | `{modelname}:write` |
+| `delete()` | `{modelname}:delete` |
+
+---
+
 ## TypeScript types
 
 ```ts
@@ -292,10 +356,15 @@ import type {
   ResumeOptions,        // options for resumeWorkflow()
   ResumeRequest,        // raw body sent to POST /api/workflows/resume
   TuvlClientOptions,    // constructor options
+  CrudListOptions,      // options for crud().list()
+  CrudGetOptions,       // options for crud().get()
+  CrudMutateOptions,    // options for crud().create() / update() / delete()
 } from "@tuvl/client";
 
 // Error classes are real classes — usable with `instanceof`
 import { TuvlWorkflowError, TuvlWorkflowSuspendedError } from "@tuvl/client";
+// CRUD client — also exported for use without TuvlClient
+import { CrudClient } from "@tuvl/client";
 ```
 
 ---

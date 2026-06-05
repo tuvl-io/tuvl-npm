@@ -113,4 +113,53 @@ export class Transport {
 
     return response.json() as Promise<TResponse>;
   }
+
+  /** Perform a JSON PATCH and return the parsed response body. */
+  async patch<TBody = unknown, TResponse = unknown>(
+    path: string,
+    body: TBody,
+    options?: { token?: string; signal?: AbortSignal },
+  ): Promise<TResponse> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    const auth = this.authHeader(options?.token);
+    if (auth) headers["Authorization"] = auth;
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(body),
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`tuvl PATCH ${path} → HTTP ${response.status}: ${text}`);
+    }
+
+    return response.json() as Promise<TResponse>;
+  }
+
+  /** Perform a DELETE request. Expects a 204 No Content response. */
+  async delete(
+    path: string,
+    options?: { token?: string; signal?: AbortSignal },
+  ): Promise<void> {
+    const headers: Record<string, string> = {};
+    const auth = this.authHeader(options?.token);
+    if (auth) headers["Authorization"] = auth;
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "DELETE",
+      headers,
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`tuvl DELETE ${path} → HTTP ${response.status}: ${text}`);
+    }
+  }
 }

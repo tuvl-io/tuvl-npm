@@ -1,6 +1,6 @@
 {
   "name": "@tuvl/client",
-  "version": "2026.2.1-beta.1",
+  "version": "2026.2.1-beta.2",
   "description": "TypeScript client SDK for the tuvl workflow orchestration engine.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -35,8 +35,7 @@
     "url": "git+https://github.com/tuvl-io/tuvl-npm.git"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "keywords": [
     "workflow",

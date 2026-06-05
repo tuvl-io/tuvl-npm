@@ -21,12 +21,13 @@ AI agent / application
          │  access_token (Biscuit JWT-like)
          ▼
 ┌─────────────────────┐
-│      TuvlClient     │  ← workflow execution, manifest cache, transport
+│      TuvlClient     │  ← workflow execution, manifest cache, transport, CRUD
 └────────┬────────────┘
          │
-   ┌─────┴──────┐──────────────┐
-   ▼            ▼              ▼
- REST POST    SSE stream    gRPC-Web stream
+   ┌────┴────┐───────────────┬───────────┬─────────────
+   ▼            ▼              ▼              ▼
+ REST POST    SSE stream    gRPC-Web stream  CrudClient
+                                          /models/{model}/
 ```
 
 **Key invariants agents must encode:**
@@ -36,6 +37,7 @@ AI agent / application
 3. All three transports return the **same** `TOutput` type — the unwrapped `data` payload. Branch on `mode`, never on the response shape.
 4. HITL suspension is modelled as a **rejection** with `TuvlWorkflowSuspendedError`. It is not a resolved value.
 5. Version pinning (`executeVersioned`) and HITL resumption (`resumeWorkflow`) are first-class methods — do not hand-craft fetch calls for these.
+6. CRUD operations use `client.crud(modelName)` which returns a `CrudClient` sharing the same transport. Never call `/models/` endpoints directly with `fetch`.
 
 ---
 
@@ -62,7 +64,8 @@ npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
 | Export | Kind | Purpose |
 |---|---|---|
 | `TuvlAuth` | class | Auth endpoints (`/auth/*`) |
-| `TuvlClient` | class | Workflow execution |
+| `TuvlClient` | class | Workflow execution and CRUD factory |
+| `CrudClient` | class | Typed CRUD access to `/models/{model}/` |
 | `TuvlWorkflowError` | class | Business failure rejection value |
 | `TuvlWorkflowSuspendedError` | class | HITL suspension rejection value |
 | `Transport` | class | Raw HTTP layer (advanced) |
@@ -87,12 +90,16 @@ import type {
   // Manifests
   WorkflowManifest,       // server manifest shape for one workflow
   WorkflowManifestMap,    // record of manifests from listWorkflows()
-  // Options
+  // Workflow options
   TuvlClientOptions,      // constructor options
   ExecuteOptions,         // options for execute()
   ExecuteVersionedOptions,// options for executeVersioned()
   ResumeOptions,          // options for resumeWorkflow()
   ResumeRequest,          // raw body sent to POST /api/workflows/resume
+  // CRUD options
+  CrudListOptions,        // options for CrudClient.list()
+  CrudGetOptions,         // options for CrudClient.get()
+  CrudMutateOptions,      // options for CrudClient.create() / update() / delete()
 } from "@tuvl/client";
 ```
 
@@ -391,7 +398,105 @@ client.invalidateManifest();                   // all
 
 ---
 
-## 7. SuspendedEvent Shape
+## 7. CRUD — Model Data Access
+
+`client.crud(modelName)` returns a `CrudClient` targeting the tuvl model endpoints at `/models/{modelname}/`. It shares the same `Transport` (base URL + auth token) as the parent `TuvlClient`.
+
+### 7.1 Method signatures
+
+```ts
+crud<TRead = unknown, TCreate = Partial<TRead>, TUpdate = Partial<TRead>>(
+  modelName: string
+): CrudClient<TRead, TCreate, TUpdate>
+```
+
+### 7.2 `CrudClient` methods
+
+| Method | HTTP | Path | Returns |
+|---|---|---|---|
+| `list(options?)` | GET | `/models/{model}/` | `Promise<TRead[]>` |
+| `get(id, options?)` | GET | `/models/{model}/{id}` | `Promise<TRead>` |
+| `create(body, options?)` | POST | `/models/{model}/` | `Promise<TRead>` |
+| `update(id, body, options?)` | PATCH | `/models/{model}/{id}` | `Promise<TRead>` |
+| `delete(id, options?)` | DELETE | `/models/{model}/{id}` | `Promise<void>` |
+
+### 7.3 `CrudListOptions` wire encoding
+
+| Field | Type | Query param emitted |
+|---|---|---|
+| `limit` | `number` | `?limit=N` |
+| `offset` | `number` | `?offset=N` |
+| `filters` | `Record<string, string>` | `?filter[key]=value` (bracket notation) |
+| `include` | `string[]` | `?include=rel1,rel2` (comma-joined) |
+| `token` | `string` | — (Authorization header) |
+| `signal` | `AbortSignal` | — (fetch cancellation) |
+
+### 7.4 Canonical CRUD pattern
+
+```ts
+import { TuvlClient, type CrudListOptions } from "@tuvl/client";
+
+interface CandidateRead  { id: string; name: string; stage: string; email: string }
+interface CandidateCreate { name: string; email: string; stage?: string }
+interface CandidateUpdate { stage?: string; note?: string }
+
+const client = new TuvlClient({ baseUrl: BASE_URL, token });
+
+// List with filters + pagination
+const opts: CrudListOptions = {
+  filters: { stage: "screening" },
+  include: ["posting"],
+  limit: 50,
+};
+const candidates = await client.crud<CandidateRead>("candidate").list(opts);
+
+// Get one
+const c = await client.crud<CandidateRead>("candidate").get(candidateId);
+
+// Get one with relations
+const cFull = await client.crud<CandidateRead>("candidate").get(candidateId, {
+  include: ["posting", "assessments"],
+});
+
+// Create
+const created = await client
+  .crud<CandidateRead, CandidateCreate>("candidate")
+  .create({ name: "Alice", email: "alice@example.com" });
+
+// Partial update
+const updated = await client
+  .crud<CandidateRead, CandidateCreate, CandidateUpdate>("candidate")
+  .update(created.id, { stage: "interview" });
+
+// Delete
+await client.crud("candidate").delete(updated.id);
+```
+
+### 7.5 Auth scopes
+
+CRUD endpoints enforce Biscuit scopes derived from the model name:
+
+| Operation | Required scope |
+|---|---|
+| `list()` / `get()` | `{modelname}:read` |
+| `create()` / `update()` | `{modelname}:write` |
+| `delete()` | `{modelname}:delete` |
+
+Check `me.scopes` from `auth.getMe(token)` before rendering CRUD UI. **Scope enforcement is server-side** — the SDK will throw on HTTP 403, not silently suppress the call.
+
+### 7.6 Error behaviour
+
+All `CrudClient` methods throw a plain `Error` on non-2xx responses. The message includes the HTTP status and body text:
+
+```
+tuvl GET /models/candidate/abc → HTTP 404: Candidate 'abc' not found
+```
+
+CRUD calls do **not** throw `TuvlWorkflowError` or `TuvlWorkflowSuspendedError` — those are workflow-only rejection types. Wrap CRUD calls in a plain `try/catch`.
+
+---
+
+## 8. SuspendedEvent Shape
 
 When a workflow hits a `HumanInTheLoop` step the server emits a `SuspendedEvent`. Agents should persist or relay this object as-is — it contains everything needed to render the HITL form.
 
@@ -419,7 +524,7 @@ interface SuspendedEvent {
 
 ---
 
-## 8. Error Classes
+## 9. Error Classes
 
 Both error classes are real JavaScript classes — safe to use with `instanceof`.
 
@@ -471,7 +576,7 @@ try {
 
 ---
 
-## 9. Advanced — Lower-Level Exports
+## 10. Advanced — Lower-Level Exports
 
 Use the building blocks directly only for non-standard transports or custom streaming logic.
 
@@ -520,11 +625,11 @@ for await (const event of openGrpcStream({
 
 ---
 
-## 10. Golden Rules for AI Code Generation
+## 11. Golden Rules for AI Code Generation
 
 These are **hard constraints**. Violating any produces incorrect or unsafe TypeScript.
 
-1. **Never invent methods on `TuvlClient` or `TuvlAuth`.** The full public API is: `execute`, `executeVersioned`, `resumeWorkflow`, `getManifest`, `listWorkflows`, `setToken`, `invalidateManifest` on the client; `bootstrap`, `loginWithPassword`, `getMe`, `getOAuthLoginUrl`, `refresh`, `logout` on auth.
+1. **Never invent methods on `TuvlClient` or `TuvlAuth`.** The full public API is: `execute`, `executeVersioned`, `resumeWorkflow`, `getManifest`, `listWorkflows`, `setToken`, `invalidateManifest`, `crud` on the client; `bootstrap`, `loginWithPassword`, `getMe`, `getOAuthLoginUrl`, `refresh`, `logout` on auth.
 2. **Always wrap `execute()` / `executeVersioned()` / `resumeWorkflow()` in try/catch.** These are async and reject on workflow failure, HITL suspension, and transport errors. Never leave them uncaught.
 3. **Always check `instanceof TuvlWorkflowSuspendedError` before `instanceof TuvlWorkflowError`.** `SuspendedError` does not extend `WorkflowError`; both extend `Error`. Check the more specific type first.
 4. **Never access `err.suspended` without confirming `instanceof TuvlWorkflowSuspendedError`.** Same for `err.data` / `err.error` without `instanceof TuvlWorkflowError`.
@@ -541,10 +646,13 @@ These are **hard constraints**. Violating any produces incorrect or unsafe TypeS
 15. **Use `ExecuteVersionedOptions` (not `ExecuteOptions`) for `executeVersioned()` calls.** While `ExecuteVersionedOptions` extends `ExecuteOptions`, using the correct type makes the `version` field explicit and prevents type-widening mistakes.
 16. **Config files must remain `.mts`, not `.ts`.** `tsup.config.mts` and `vitest.config.mts` use `.mts` to force ESM loading. Renaming them to `.ts` re-introduces the Vite CJS Node API deprecation warning and will break CI.
 17. **`"ignoreDeprecations": "6.0"` in `tsconfig.json` is intentional.** It suppresses a TypeScript 6 error caused by tsup's DTS builder passing the deprecated `baseUrl` option internally. Do not remove it until tsup 9+ ships with a TS 6-compatible DTS pipeline.
+18. **Use `client.crud(modelName)` for all model data access.** Never hand-craft `fetch` calls to `/models/`. The `CrudClient` handles URL encoding, query param serialisation, auth injection, and error wrapping consistently.
+19. **Never throw `TuvlWorkflowError` / `TuvlWorkflowSuspendedError` from CRUD error paths.** `CrudClient` throws plain `Error` instances. Do not catch CRUD errors with `instanceof TuvlWorkflowError`.
+20. **Pass `filters` as `Record<string, string>` (not query string).** The SDK serialises `{ stage: "screening" }` to `?filter[stage]=screening` internally. Never manually append filter params to the model name string.
 
 ---
 
-## 11. Canonical Integration Pattern (end-to-end)
+## 12. Canonical Integration Pattern (end-to-end)
 
 ```ts
 import {
@@ -630,7 +738,7 @@ client.setToken(refreshed);
 
 ---
 
-## 12. Quick Reference — Generation Decision Tree
+## 13. Quick Reference — Generation Decision Tree
 
 ```
 Need to …
@@ -642,6 +750,13 @@ Need to …
 ├── Handle HITL suspension                 → catch TuvlWorkflowSuspendedError, then resumeWorkflow()
 ├── Resume a suspended workflow            → client.resumeWorkflow({ instanceId, humanInput })
 ├── Handle workflow business failure       → catch TuvlWorkflowError (.error, .data)
+├── Read all records for a model           → client.crud("model").list()
+├── Filter / paginate model records        → client.crud("model").list({ filters, limit, offset })
+├── Embed related records                  → client.crud("model").list/get({ include: ["rel"] })
+├── Get a single record by UUID            → client.crud("model").get(id)
+├── Create a new record                    → client.crud("model").create(body)
+├── Partially update a record              → client.crud("model").update(id, patch)
+├── Delete a record                        → client.crud("model").delete(id)
 ├── List all available workflows           → client.listWorkflows()
 ├── Inspect workflow trigger / hints       → client.getManifest(name)
 ├── Rotate auth token                      → auth.refresh(token) → client.setToken(newToken)
@@ -661,9 +776,10 @@ The SDK ships with a full unit test suite (`vitest 4`, `environment: node`, no r
 | File | Tests | What is covered |
 |---|---|---|
 | `src/types.test.ts` | 6 | `TuvlWorkflowError` and `TuvlWorkflowSuspendedError` — construction, `.name`, `.data`, `.error`, `.suspended` |
-| `src/transport.test.ts` | 11 | `Transport.post/get/postStream/setToken` — auth header injection, error status handling, baseUrl normalisation |
+| `src/transport.test.ts` | 11 | `Transport.post/get/patch/delete/postStream/setToken` — auth header injection, error status handling, baseUrl normalisation |
 | `src/auth.test.ts` | 13 | All `TuvlAuth` methods — success + HTTP error paths, form-encoding, URL encoding, 204 logout |
 | `src/sse.test.ts` | 10 | `parseSseStream` — step/done/error/suspended frames, CRLF, non-JSON skip, terminal-frame stop, abort signal |
+| `src/crud.test.ts` | 19 | `CrudClient.list/get/create/update/delete` — query param serialisation (filters, include, pagination), auth header, HTTP method, error paths, `TuvlClient.crud()` factory |
 | `src/client.test.ts` | 21 | `TuvlClient` REST/SSE execute, SSE auto-upgrade, error/suspended/engine-error rejection, manifest cache/invalidation, `executeVersioned`, `resumeWorkflow`, `setToken` |
 
 Run with:
