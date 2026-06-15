@@ -102,13 +102,40 @@ verify: check build smoke
 # by accident.  Uses --access public because @tuvl is a scoped package
 # (npm defaults scoped packages to private otherwise).
 #
-# Two-factor auth: if `npm config get otp` is unset and 2FA is required on
-# the @tuvl scope, pnpm will prompt interactively for the OTP code.
+# Auto-detects the npm dist-tag from the package.json version:
+#   *-alpha.N → alpha
+#   *-beta.N  → beta
+#   *-rc.N    → rc
+#   anything else → latest
+# This stops a prerelease from accidentally moving the `latest` tag,
+# which would surprise anyone running `npm install @tuvl/client` (no
+# version pin) with a beta.
+#
+# Two-factor auth: if your npm account has 2FA enabled with "auth-and-writes"
+# mode, pnpm will prompt interactively for an OTP code.  Switch to "auth-only"
+# in your npm profile, or use a granular access token that bypasses 2FA, if
+# the OTP prompt doesn't appear in your terminal.
+DIST_TAG = $$( \
+  PKG_VERSION=$$($(NODE) -p "require('./package.json').version"); \
+  case "$$PKG_VERSION" in \
+    *-alpha.*) echo alpha;; \
+    *-beta.*)  echo beta;;  \
+    *-rc.*)    echo rc;;    \
+    *)         echo latest;; \
+  esac \
+)
+
 publish-dry:
-	$(PKG) publish --dry-run
+	@PKG_VERSION=$$($(NODE) -p "require('./package.json').version"); \
+	  TAG=$(DIST_TAG); \
+	  echo "→ Dry-run: would publish $$PKG_VERSION with dist-tag '$$TAG'"; \
+	  $(PKG) publish --access public --tag "$$TAG" --dry-run
 
 publish: verify
-	$(PKG) publish --access public
+	@PKG_VERSION=$$($(NODE) -p "require('./package.json').version"); \
+	  TAG=$(DIST_TAG); \
+	  echo "→ Publishing $$PKG_VERSION with dist-tag '$$TAG'"; \
+	  $(PKG) publish --access public --tag "$$TAG"
 
 # ── Identity ─────────────────────────────────────────────────────────────────
 whoami:
