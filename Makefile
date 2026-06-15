@@ -111,29 +111,34 @@ verify: check build smoke
 # which would surprise anyone running `npm install @tuvl/client` (no
 # version pin) with a beta.
 #
+# The case statement is inlined into each recipe rather than factored
+# into a Makefile variable: nesting bash `$(...)` substitutions around
+# a `case` block makes bash's parser treat the case-pattern close-paren
+# `*-beta.*)` as the close of the outer `$(`, producing a syntax error.
+#
 # Two-factor auth: if your npm account has 2FA enabled with "auth-and-writes"
 # mode, pnpm will prompt interactively for an OTP code.  Switch to "auth-only"
 # in your npm profile, or use a granular access token that bypasses 2FA, if
 # the OTP prompt doesn't appear in your terminal.
-DIST_TAG = $$( \
-  PKG_VERSION=$$($(NODE) -p "require('./package.json').version"); \
-  case "$$PKG_VERSION" in \
-    *-alpha.*) echo alpha;; \
-    *-beta.*)  echo beta;;  \
-    *-rc.*)    echo rc;;    \
-    *)         echo latest;; \
-  esac \
-)
-
 publish-dry:
 	@PKG_VERSION=$$($(NODE) -p "require('./package.json').version"); \
-	  TAG=$(DIST_TAG); \
+	  case "$$PKG_VERSION" in \
+	    *-alpha.*) TAG=alpha;; \
+	    *-beta.*)  TAG=beta;;  \
+	    *-rc.*)    TAG=rc;;    \
+	    *)         TAG=latest;; \
+	  esac; \
 	  echo "→ Dry-run: would publish $$PKG_VERSION with dist-tag '$$TAG'"; \
 	  $(PKG) publish --access public --tag "$$TAG" --dry-run
 
 publish: verify
 	@PKG_VERSION=$$($(NODE) -p "require('./package.json').version"); \
-	  TAG=$(DIST_TAG); \
+	  case "$$PKG_VERSION" in \
+	    *-alpha.*) TAG=alpha;; \
+	    *-beta.*)  TAG=beta;;  \
+	    *-rc.*)    TAG=rc;;    \
+	    *)         TAG=latest;; \
+	  esac; \
 	  echo "→ Publishing $$PKG_VERSION with dist-tag '$$TAG'"; \
 	  $(PKG) publish --access public --tag "$$TAG"
 
