@@ -128,8 +128,9 @@ publish-dry:
 	    *-rc.*)    TAG=rc;;    \
 	    *)         TAG=latest;; \
 	  esac; \
-	  echo "→ Dry-run: would publish $$PKG_VERSION with dist-tag '$$TAG'"; \
-	  $(PKG) publish --access public --tag "$$TAG" --dry-run
+	  BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	  echo "→ Dry-run: would publish $$PKG_VERSION with dist-tag '$$TAG' from branch '$$BRANCH'"; \
+	  $(PKG) publish --access public --tag "$$TAG" --publish-branch "$$BRANCH" --dry-run
 
 publish: verify
 	@PKG_VERSION=$$($(NODE) -p "require('./package.json').version"); \
@@ -139,8 +140,9 @@ publish: verify
 	    *-rc.*)    TAG=rc;;    \
 	    *)         TAG=latest;; \
 	  esac; \
-	  echo "→ Publishing $$PKG_VERSION with dist-tag '$$TAG'"; \
-	  $(PKG) publish --access public --tag "$$TAG"
+	  BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	  echo "→ Publishing $$PKG_VERSION with dist-tag '$$TAG' from branch '$$BRANCH'"; \
+	  $(PKG) publish --access public --tag "$$TAG" --publish-branch "$$BRANCH"
 
 # ── Identity ─────────────────────────────────────────────────────────────────
 whoami:
