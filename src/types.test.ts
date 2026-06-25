@@ -86,7 +86,7 @@ describe("agentProgress", () => {
   });
 
   it("returns null for non-agent steps", () => {
-    expect(agentProgress({ kind: "functional", signal: "running", snapshot: {} })).toBeNull();
+    expect(agentProgress({ kind: "Functional", signal: "running", snapshot: {} })).toBeNull();
   });
 
   it("returns null when no agent_progress payload is present", () => {
