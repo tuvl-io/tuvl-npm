@@ -2,7 +2,7 @@
 
 > **Audience:** Autonomous AI coding agents and agentic IDEs consuming the `@tuvl/client` TypeScript SDK.
 > **Purpose:** Deterministic instruction set for generating correct, production-ready TypeScript that calls a running TUVL server.
-> **Version of contract:** Derived from `@tuvl/client@2026.2.3-beta.1` — this manual is the ground truth for code generation; never invent methods, options, or fields absent here.
+> **Version of contract:** Derived from `@tuvl/client@2026.2.4-beta.1` — this manual is the ground truth for code generation; never invent methods, options, or fields absent here.
 > **Companion:** The TUVL server-side contract is documented in `docs/TUVL_AGENTIC_MANUAL.md` inside the `tuvl` Python package. The SDK mirrors that contract exactly.
 > **Last updated:** 2026-06-01
 
@@ -71,6 +71,7 @@ npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
 | `Transport` | class | Raw HTTP layer (advanced) |
 | `parseSseStream` | async generator | SSE frame parser (advanced) |
 | `openGrpcStream` | async generator | gRPC-Web stream (advanced) |
+| `agentProgress` | function | Read an `AutonomousAgent` live loop frame from a `StepEvent` (or `null`) |
 
 ### 3.2 Named type exports
 
@@ -81,6 +82,7 @@ import type {
   MeResponse,             // { user_id, groups, scopes }
   // Execution events (SSE / gRPC)
   StepEvent,              // { event_type:"step", step_id, kind, signal, snapshot, duration_ms }
+  AgentProgress,          // AutonomousAgent live loop frame: { type, iteration, tool?, tokens_used?, signal? }
   DoneEvent,              // { event_type:"done", success, data, error }
   ErrorEvent,             // { event_type:"error", message, details }
   SuspendedEvent,         // { event_type:"suspended", instance_id, ui, schema, context_data, … }
@@ -291,6 +293,33 @@ try {
   }
 }
 ```
+
+#### Observing an AutonomousAgent loop (live progress)
+
+A `kind: AutonomousAgent` step (engine >= `2026.2.4`) streams **live loop
+progress** as ordinary `StepEvent`s while it runs: `kind: "AutonomousAgent"`,
+`signal: "running"`, with the payload under `snapshot.agent_progress`. The step
+then ends with a normal frame whose `signal` is the agent's outcome (or a
+reserved exit). Use `agentProgress(ev)` to read the typed frame — it returns
+`null` for any non-progress event, so it is safe to call on every `onProgress`
+event:
+
+```ts
+import { agentProgress } from "@tuvl/client";
+
+await client.execute("triage-ticket", {
+  payload: { ticket_id: 7 },
+  onProgress: (ev) => {
+    const p = agentProgress(ev);          // AgentProgress | null
+    if (p?.type === "tool_call") console.log(`  → tool: ${p.tool}`);
+    else if (p?.type === "iteration") console.log(`iteration ${p.iteration} (${p.tokens_used} tok)`);
+    else if (!p) console.log(`[${ev.step_id}] ${ev.signal}`);  // ordinary step / final frame
+  },
+});
+```
+
+No transport change is required — these frames arrive on the same SSE/gRPC
+stream as every other `StepEvent`.
 
 ### 5.3 `client.executeVersioned(workflowName, version, options?)`
 

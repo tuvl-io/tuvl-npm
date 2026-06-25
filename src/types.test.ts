@@ -1,8 +1,8 @@
 /**
- * Tests for TuvlWorkflowError and TuvlWorkflowSuspendedError.
+ * Tests for TuvlWorkflowError, TuvlWorkflowSuspendedError and agentProgress.
  */
 import { describe, it, expect } from "vitest";
-import { TuvlWorkflowError, TuvlWorkflowSuspendedError } from "./types";
+import { TuvlWorkflowError, TuvlWorkflowSuspendedError, agentProgress } from "./types";
 
 describe("TuvlWorkflowError", () => {
   it("is an instance of Error", () => {
@@ -52,5 +52,44 @@ describe("TuvlWorkflowSuspendedError", () => {
   it("has the correct name", () => {
     const err = new TuvlWorkflowSuspendedError({ event_type: "suspended" });
     expect(err.name).toBe("TuvlWorkflowSuspendedError");
+  });
+});
+
+describe("agentProgress", () => {
+  it("reads an iteration progress frame", () => {
+    const ev = {
+      kind: "AutonomousAgent",
+      signal: "running",
+      snapshot: { agent_progress: { type: "iteration", iteration: 2, tool_calls: 1, tokens_used: 40 } },
+    };
+    const p = agentProgress(ev);
+    expect(p).toEqual({ type: "iteration", iteration: 2, tool_calls: 1, tokens_used: 40 });
+  });
+
+  it("reads a tool_call progress frame", () => {
+    const p = agentProgress({
+      kind: "AutonomousAgent",
+      signal: "running",
+      snapshot: { agent_progress: { type: "tool_call", iteration: 1, tool: "lookup_order", signal: "default" } },
+    });
+    expect(p?.type).toBe("tool_call");
+    expect(p?.tool).toBe("lookup_order");
+  });
+
+  it("returns null for the terminating outcome frame (not signal=running)", () => {
+    const ev = {
+      kind: "AutonomousAgent",
+      signal: "resolved",
+      snapshot: { agent_result: "done" },
+    };
+    expect(agentProgress(ev)).toBeNull();
+  });
+
+  it("returns null for non-agent steps", () => {
+    expect(agentProgress({ kind: "functional", signal: "running", snapshot: {} })).toBeNull();
+  });
+
+  it("returns null when no agent_progress payload is present", () => {
+    expect(agentProgress({ kind: "AutonomousAgent", signal: "running", snapshot: {} })).toBeNull();
   });
 });

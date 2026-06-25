@@ -28,11 +28,13 @@ export { Transport } from "./transport";
 export {
   TuvlWorkflowError,
   TuvlWorkflowSuspendedError,
+  agentProgress,
 } from "./types";
 export type {
   TokenResponse,
   MeResponse,
   StepEvent,
+  AgentProgress,
   DoneEvent,
   ErrorEvent,
   SuspendedEvent,

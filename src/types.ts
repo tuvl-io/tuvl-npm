@@ -36,6 +36,46 @@ export interface StepEvent {
 }
 
 /**
+ * Live loop-progress emitted by an `AutonomousAgent` step (engine >= 2026.2.4).
+ *
+ * The engine streams these mid-step as ordinary {@link StepEvent}s with
+ * `kind: "AutonomousAgent"`, `signal: "running"`, and the payload under
+ * `snapshot.agent_progress`. They carry loop metadata only (no context values).
+ * The terminating frame for the step is a normal StepEvent whose `signal` is the
+ * agent's outcome (or a reserved exit: `max_iterations` | `budget_exceeded` |
+ * `error`). Use {@link agentProgress} to read this off a streamed event.
+ */
+export interface AgentProgress {
+  /** Which loop event this frame reports. */
+  type: "iteration" | "tool_call" | "outcome";
+  /** 1-based loop iteration index. */
+  iteration: number;
+  /** `iteration` frames: number of tool calls the model requested this turn. */
+  tool_calls?: number;
+  /** `iteration` frames: cumulative tokens consumed so far. */
+  tokens_used?: number;
+  /** `tool_call` frames: the tool (component ref) that was invoked. */
+  tool?: string;
+  /** `tool_call` / `outcome` frames: the signal produced. */
+  signal?: string;
+}
+
+/**
+ * Read the {@link AgentProgress} payload from a streamed event, or `null` when
+ * the event is not an AutonomousAgent progress frame. Works for both the SSE
+ * `StepEvent` and the gRPC `GrpcStepEvent` (structural).
+ */
+export function agentProgress(event: {
+  kind: string;
+  signal: string;
+  snapshot?: Record<string, unknown>;
+}): AgentProgress | null {
+  if (event.kind !== "AutonomousAgent" || event.signal !== "running") return null;
+  const p = event.snapshot?.agent_progress;
+  return p && typeof p === "object" ? (p as AgentProgress) : null;
+}
+
+/**
  * Terminal event emitted when the workflow finishes (success OR business failure).
  * Wire shape from tuvl.core.api.manager._sse_generator:
  *   {success: true,  data: <output>,  error: null}
