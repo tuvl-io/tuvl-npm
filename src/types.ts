@@ -136,8 +136,6 @@ export interface WorkflowManifest {
   trigger_method: string;
   has_slow_steps: boolean;
   slow_kinds_present: string[];
-  required_scope: string | null;
-  required_group: string | null;
   steps: Array<{ id: string; kind: string }>;
 }
 

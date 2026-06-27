@@ -187,8 +187,6 @@ export class TuvlClient {
       trigger_method: "POST",
       has_slow_steps: cachedManifest?.has_slow_steps ?? false,
       slow_kinds_present: cachedManifest?.slow_kinds_present ?? [],
-      required_scope: cachedManifest?.required_scope ?? null,
-      required_group: cachedManifest?.required_group ?? null,
       steps: cachedManifest?.steps ?? [],
     };
 
@@ -256,8 +254,6 @@ export class TuvlClient {
         trigger_method: "POST",
         has_slow_steps: true,
         slow_kinds_present: [],
-        required_scope: null,
-        required_group: null,
         steps: [],
       };
       return this._executeSse<TOutput>(

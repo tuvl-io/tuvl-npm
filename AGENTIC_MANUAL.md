@@ -389,13 +389,13 @@ The server endpoint is `POST /api/workflows/resume` with body `{ instance_id, hu
 
 ### `client.getManifest(workflowName, options?)`
 
-Fetches (and caches) the workflow manifest from `GET /api/_system/workflows/{name}`. Called automatically by `execute()` and `executeVersioned()`. Call directly only if you need `WorkflowManifest` fields (e.g. `trigger_path`, `has_slow_steps`, `required_scope`) without executing.
+Fetches (and caches) the workflow manifest from `GET /api/_system/workflows/{name}`. Called automatically by `execute()` and `executeVersioned()`. Call directly only if you need `WorkflowManifest` fields (e.g. `trigger_path`, `has_slow_steps`) without executing.
 
 ```ts
 const manifest = await client.getManifest("screen-candidate");
 // manifest.trigger_path    — HTTP path
 // manifest.has_slow_steps  — whether SSE auto-upgrade would fire
-// manifest.required_scope  — Biscuit scope guard (informational, enforced server-side)
+// manifest.slow_kinds_present — slow step kinds present (e.g. ["Agent"])
 ```
 
 ### `client.listWorkflows()`

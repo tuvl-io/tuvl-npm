@@ -43,8 +43,6 @@ const baseManifest: WorkflowManifest = {
   trigger_method: "POST",
   has_slow_steps: false,
   slow_kinds_present: [],
-  required_scope: null,
-  required_group: null,
   steps: [],
 };
 
