@@ -1,5 +1,9 @@
 # @tuvl/client
 
+> ⚠️ **Beta.** `@tuvl/client` 2026.2.4 targets a beta engine release. It's fine for
+> development and evaluation, but **not recommended for production yet** — APIs may
+> still change before the stable release, which is coming soon.
+
 TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
 
 Supports three transports — plain REST, Server-Sent Events, and gRPC-Web — with automatic transport selection based on the workflow's streaming hints. Also ships first-class support for Human-in-the-Loop (HITL) resumption, explicit version pinning, and typed CRUD access to tuvl model endpoints.
