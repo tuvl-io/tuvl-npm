@@ -1,6 +1,6 @@
 # @tuvl/client
 
-> ⚠️ **Beta.** `@tuvl/client` 2026.2.4 targets a beta engine release. It's fine for
+> ⚠️ **Beta.** `@tuvl/client` 2026.2.6 targets a beta engine release. It's fine for
 > development and evaluation, but **not recommended for production yet** — APIs may
 > still change before the stable release, which is coming soon.
 
