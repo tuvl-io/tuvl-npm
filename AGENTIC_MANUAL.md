@@ -299,10 +299,12 @@ try {
 A `kind: AutonomousAgent` step (engine >= `2026.2.4`) streams **live loop
 progress** as ordinary `StepEvent`s while it runs: `kind: "AutonomousAgent"`,
 `signal: "running"`, with the payload under `snapshot.agent_progress`. The step
-then ends with a normal frame whose `signal` is the agent's outcome (or a
-reserved exit). Use `agentProgress(ev)` to read the typed frame — it returns
-`null` for any non-progress event, so it is safe to call on every `onProgress`
-event:
+then ends with a normal frame whose `signal` is the agent's outcome or one of
+the four reserved exits: `max_iterations`, `budget_exceeded`, `error`, or
+`aborted` (a `spec.supervisor` or operator stopped the run, engine >=
+`2026.2.5`) — handle all of them when routing on terminal signals. Use
+`agentProgress(ev)` to read the typed frame — it returns `null` for any
+non-progress event, so it is safe to call on every `onProgress` event:
 
 ```ts
 import { agentProgress } from "@tuvl/client";
@@ -382,6 +384,14 @@ const finalResult = await client.resumeWorkflow<HireOutput>({
 | `signal` | `AbortSignal` | Cancellation signal |
 
 The server endpoint is `POST /api/workflows/resume` with body `{ instance_id, human_input }`.
+
+**Resume authorization (engine >= `2026.2.6`):** when the paused step declares
+`auth.required_group`, only a caller whose token carries that group may resume —
+the user who triggered the run can **no longer approve their own request** and
+gets a **403**. Without a declared group, only the triggering user may resume
+(runs triggered unauthenticated → admin only). `iam:admin` bypasses either rule.
+Do not assume the triggering token can resume; catch the 403 and surface it as
+an approval-permission error.
 
 ---
 

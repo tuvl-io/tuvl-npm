@@ -43,7 +43,9 @@ export interface StepEvent {
  * `snapshot.agent_progress`. They carry loop metadata only (no context values).
  * The terminating frame for the step is a normal StepEvent whose `signal` is the
  * agent's outcome (or a reserved exit: `max_iterations` | `budget_exceeded` |
- * `error`). Use {@link agentProgress} to read this off a streamed event.
+ * `error` | `aborted` — the last emitted when a `spec.supervisor` or an
+ * operator aborts the run, engine >= 2026.2.5). Use {@link agentProgress} to
+ * read this off a streamed event.
  */
 export interface AgentProgress {
   /** Which loop event this frame reports. */
