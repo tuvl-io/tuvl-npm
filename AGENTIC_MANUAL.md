@@ -2,7 +2,7 @@
 
 > **Audience:** Autonomous AI coding agents and agentic IDEs consuming the `@tuvl/client` TypeScript SDK.
 > **Purpose:** Deterministic instruction set for generating correct, production-ready TypeScript that calls a running TUVL server.
-> **Version of contract:** Derived from `@tuvl/client@2026.2.6` — this manual is the ground truth for code generation; never invent methods, options, or fields absent here.
+> **Version of contract:** Derived from `@tuvl/client@2026.3.1` — this manual is the ground truth for code generation; never invent methods, options, or fields absent here.
 > **Companion:** The TUVL server-side contract is documented in `docs/TUVL_AGENTIC_MANUAL.md` inside the `tuvl` Python package. The SDK mirrors that contract exactly.
 > **Last updated:** 2026-06-01
 

@@ -1,8 +1,8 @@
 # @tuvl/client
 
-> ⚠️ **Beta.** `@tuvl/client` 2026.2.6 targets a beta engine release. It's fine for
-> development and evaluation, but **not recommended for production yet** — APIs may
-> still change before the stable release, which is coming soon.
+> **Early stable.** `@tuvl/client` 2026.3.1 targets an early-stable engine release.
+> The API is stable and versioned; being early in the stable line, expect additive
+> changes between releases.
 
 TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
 
