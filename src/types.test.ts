@@ -58,7 +58,7 @@ describe("TuvlWorkflowSuspendedError", () => {
 describe("agentProgress", () => {
   it("reads an iteration progress frame", () => {
     const ev = {
-      kind: "AutonomousAgent",
+      kind: "Agent",
       signal: "running",
       snapshot: { agent_progress: { type: "iteration", iteration: 2, tool_calls: 1, tokens_used: 40 } },
     };
@@ -68,7 +68,7 @@ describe("agentProgress", () => {
 
   it("reads a tool_call progress frame", () => {
     const p = agentProgress({
-      kind: "AutonomousAgent",
+      kind: "Agent",
       signal: "running",
       snapshot: { agent_progress: { type: "tool_call", iteration: 1, tool: "lookup_order", signal: "default" } },
     });
@@ -78,7 +78,7 @@ describe("agentProgress", () => {
 
   it("returns null for the terminating outcome frame (not signal=running)", () => {
     const ev = {
-      kind: "AutonomousAgent",
+      kind: "Agent",
       signal: "resolved",
       snapshot: { agent_result: "done" },
     };
@@ -90,6 +90,6 @@ describe("agentProgress", () => {
   });
 
   it("returns null when no agent_progress payload is present", () => {
-    expect(agentProgress({ kind: "AutonomousAgent", signal: "running", snapshot: {} })).toBeNull();
+    expect(agentProgress({ kind: "Agent", signal: "running", snapshot: {} })).toBeNull();
   });
 });

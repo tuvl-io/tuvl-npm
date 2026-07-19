@@ -71,7 +71,7 @@ npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
 | `Transport` | class | Raw HTTP layer (advanced) |
 | `parseSseStream` | async generator | SSE frame parser (advanced) |
 | `openGrpcStream` | async generator | gRPC-Web stream (advanced) |
-| `agentProgress` | function | Read an `AutonomousAgent` live loop frame from a `StepEvent` (or `null`) |
+| `agentProgress` | function | Read an autonomous `Agent` live loop frame from a `StepEvent` (or `null`) |
 
 ### 3.2 Named type exports
 
@@ -82,7 +82,7 @@ import type {
   MeResponse,             // { user_id, groups, scopes }
   // Execution events (SSE / gRPC)
   StepEvent,              // { event_type:"step", step_id, kind, signal, snapshot, duration_ms }
-  AgentProgress,          // AutonomousAgent live loop frame: { type, iteration, tool?, tokens_used?, signal? }
+  AgentProgress,          // autonomous Agent live loop frame: { type, iteration, tool?, tokens_used?, signal? }
   DoneEvent,              // { event_type:"done", success, data, error }
   ErrorEvent,             // { event_type:"error", message, details }
   SuspendedEvent,         // { event_type:"suspended", instance_id, ui, schema, context_data, … }
@@ -294,10 +294,10 @@ try {
 }
 ```
 
-#### Observing an AutonomousAgent loop (live progress)
+#### Observing an autonomous Agent loop (live progress)
 
-A `kind: AutonomousAgent` step (engine >= `2026.2.4`) streams **live loop
-progress** as ordinary `StepEvent`s while it runs: `kind: "AutonomousAgent"`,
+An `Agent` step with `mode: autonomous` streams **live loop
+progress** as ordinary `StepEvent`s while it runs: `kind: "Agent"`,
 `signal: "running"`, with the payload under `snapshot.agent_progress`. The step
 then ends with a normal frame whose `signal` is the agent's outcome or one of
 the four reserved exits: `max_iterations`, `budget_exceeded`, `error`, or

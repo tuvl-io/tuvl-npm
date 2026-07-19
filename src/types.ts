@@ -36,15 +36,14 @@ export interface StepEvent {
 }
 
 /**
- * Live loop-progress emitted by an `AutonomousAgent` step (engine >= 2026.2.4).
+ * Live loop-progress emitted by an autonomous-mode `Agent` step.
  *
  * The engine streams these mid-step as ordinary {@link StepEvent}s with
- * `kind: "AutonomousAgent"`, `signal: "running"`, and the payload under
+ * `kind: "Agent"`, `signal: "running"`, and the payload under
  * `snapshot.agent_progress`. They carry loop metadata only (no context values).
  * The terminating frame for the step is a normal StepEvent whose `signal` is the
  * agent's outcome (or a reserved exit: `max_iterations` | `budget_exceeded` |
- * `error` | `aborted` — the last emitted when a `spec.supervisor` or an
- * operator aborts the run, engine >= 2026.2.5). Use {@link agentProgress} to
+ * `error` | `aborted` | `guardrail_violation`). Use {@link agentProgress} to
  * read this off a streamed event.
  */
 export interface AgentProgress {
@@ -64,7 +63,7 @@ export interface AgentProgress {
 
 /**
  * Read the {@link AgentProgress} payload from a streamed event, or `null` when
- * the event is not an AutonomousAgent progress frame. Works for both the SSE
+ * the event is not an agent progress frame. Works for both the SSE
  * `StepEvent` and the gRPC `GrpcStepEvent` (structural).
  */
 export function agentProgress(event: {
@@ -72,7 +71,7 @@ export function agentProgress(event: {
   signal: string;
   snapshot?: Record<string, unknown>;
 }): AgentProgress | null {
-  if (event.kind !== "AutonomousAgent" || event.signal !== "running") return null;
+  if (event.kind !== "Agent" || event.signal !== "running") return null;
   const p = event.snapshot?.agent_progress;
   return p && typeof p === "object" ? (p as AgentProgress) : null;
 }

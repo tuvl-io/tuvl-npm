@@ -57,7 +57,7 @@ const result2 = await client.execute("screen-candidate", {
   onProgress: (ev) => console.log(`[${ev.step_id}] ${ev.duration_ms}ms`),
 });
 
-// Observe an AutonomousAgent loop live (engine >= 2026.2.4)
+// Observe an autonomous Agent loop live
 import { agentProgress } from "@tuvl/client";
 await client.execute("triage-ticket", {
   payload: { ticket_id: 7 },
