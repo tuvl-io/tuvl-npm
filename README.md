@@ -1,6 +1,6 @@
 # @tuvl/client
 
-> **Early stable.** `@tuvl/client` 2026.3.2 targets an early-stable engine release.
+> **Early stable.** `@tuvl/client` 2026.4.0 targets an early-stable engine release.
 > The API is stable and versioned; being early in the stable line, expect additive
 > changes between releases.
 
