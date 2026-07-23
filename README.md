@@ -1,8 +1,8 @@
 # @tuvl/client
 
-> **Early stable.** `@tuvl/client` 2026.4.0 targets an early-stable engine release.
-> The API is stable and versioned; being early in the stable line, expect additive
-> changes between releases.
+> **Stable.** `@tuvl/client` 1.0.0 targets engine `tuvl >= 1.0.0`. The API is
+> stable and versioned under [SemVer](https://semver.org): breaking changes bump
+> the major version.
 
 TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
 

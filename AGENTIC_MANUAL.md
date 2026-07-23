@@ -2,9 +2,9 @@
 
 > **Audience:** Autonomous AI coding agents and agentic IDEs consuming the `@tuvl/client` TypeScript SDK.
 > **Purpose:** Deterministic instruction set for generating correct, production-ready TypeScript that calls a running TUVL server.
-> **Version of contract:** Derived from `@tuvl/client@2026.4.0` — this manual is the ground truth for code generation; never invent methods, options, or fields absent here.
+> **Version of contract:** Derived from `@tuvl/client@1.0.0` — this manual is the ground truth for code generation; never invent methods, options, or fields absent here.
 > **Companion:** The TUVL server-side contract is documented in `docs/TUVL_AGENTIC_MANUAL.md` inside the `tuvl` Python package. The SDK mirrors that contract exactly.
-> **Last updated:** 2026-06-01
+> **Last updated:** 2026-07-23
 
 ---
 
@@ -301,8 +301,8 @@ progress** as ordinary `StepEvent`s while it runs: `kind: "Agent"`,
 `signal: "running"`, with the payload under `snapshot.agent_progress`. The step
 then ends with a normal frame whose `signal` is the agent's outcome or one of
 the four reserved exits: `max_iterations`, `budget_exceeded`, `error`, or
-`aborted` (a `spec.supervisor` or operator stopped the run, engine >=
-`2026.2.5`) — handle all of them when routing on terminal signals. Use
+`aborted` (a `spec.supervisor` or operator stopped the run) — handle all of
+them when routing on terminal signals. Use
 `agentProgress(ev)` to read the typed frame — it returns `null` for any
 non-progress event, so it is safe to call on every `onProgress` event:
 
@@ -385,7 +385,7 @@ const finalResult = await client.resumeWorkflow<HireOutput>({
 
 The server endpoint is `POST /api/workflows/resume` with body `{ instance_id, human_input }`.
 
-**Resume authorization (engine >= `2026.2.6`):** when the paused step declares
+**Resume authorization:** when the paused step declares
 `auth.required_group`, only a caller whose token carries that group may resume —
 the user who triggered the run can **no longer approve their own request** and
 gets a **403**. Without a declared group, only the triggering user may resume
