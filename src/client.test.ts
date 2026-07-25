@@ -110,6 +110,13 @@ describe("TuvlClient.getManifest()", () => {
     const [url] = mockFetch.mock.calls[0] as [string];
     expect(url).toBe("http://srv/api/_system/workflows/my%20wf");
   });
+
+  it("passes through the public flag", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ...baseManifest, public: true }));
+    const c = new TuvlClient({ baseUrl: "http://srv" });
+    const m = await c.getManifest("my-wf");
+    expect(m.public).toBe(true);
+  });
 });
 
 // ── execute() REST ────────────────────────────────────────────────────────

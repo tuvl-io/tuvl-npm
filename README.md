@@ -44,6 +44,8 @@ console.log(me.groups);  // ["hr_manager"]
 console.log(me.scopes);  // ["candidate:read", "requisition:write"]
 
 // 3. Run a workflow
+// Note: current engines require a token on every call unless the workflow
+// declares trigger.public: true (see manifest.public in AGENTIC_MANUAL.md §6).
 const client = new TuvlClient({ baseUrl: "http://localhost:8000", token: access_token });
 
 // Plain REST call

@@ -38,6 +38,8 @@ options:
 2. Wrap the execution in a `try/catch` block.
 3. Check for specific SDK error types.
 
+Note: this assumes `client` already carries a token (see `authenticate-user`). Current engines reject unauthenticated calls with 401 unless the workflow's manifest has `public: true`.
+
 ```ts
 import { TuvlWorkflowError, TuvlWorkflowSuspendedError } from "@tuvl/client";
 

@@ -138,6 +138,8 @@ export interface WorkflowManifest {
   has_slow_steps: boolean;
   slow_kinds_present: string[];
   steps: Array<{ id: string; kind: string }>;
+  /** Declared trigger.public — true when the workflow trigger accepts anonymous calls. */
+  public?: boolean;
 }
 
 /** Map of workflow manifests (from GET /api/_system/workflows). */

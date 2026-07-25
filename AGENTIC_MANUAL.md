@@ -218,6 +218,16 @@ await auth.logout(token);
 localStorage.removeItem("tuvl_token");
 ```
 
+### 4.3 Workflow-call authorization
+
+Current engines require a bearer token on every workflow call by default — this
+applies even to workflows with no `required_scope` / `required_group`. Only
+workflows that declare `trigger.public: true` accept anonymous (no-token)
+calls; every other workflow rejects an unauthenticated call with **401**. The
+manifest's `public` field (see §6) tells you which workflows are callable
+without `token`. When in doubt, pass `token` on every `execute()` /
+`executeVersioned()` call rather than relying on a workflow being public.
+
 ---
 
 ## 5. Workflow Execution — `TuvlClient`
@@ -406,6 +416,7 @@ const manifest = await client.getManifest("screen-candidate");
 // manifest.trigger_path    — HTTP path
 // manifest.has_slow_steps  — whether SSE auto-upgrade would fire
 // manifest.slow_kinds_present — slow step kinds present (e.g. ["Agent"])
+// manifest.public          — declared trigger.public; true when callable without a token (see §4.3)
 ```
 
 ### `client.listWorkflows()`
@@ -819,7 +830,7 @@ The SDK ships with a full unit test suite (`vitest 4`, `environment: node`, no r
 | `src/auth.test.ts` | 13 | All `TuvlAuth` methods — success + HTTP error paths, form-encoding, URL encoding, 204 logout |
 | `src/sse.test.ts` | 10 | `parseSseStream` — step/done/error/suspended frames, CRLF, non-JSON skip, terminal-frame stop, abort signal |
 | `src/crud.test.ts` | 19 | `CrudClient.list/get/create/update/delete` — query param serialisation (filters, include, pagination), auth header, HTTP method, error paths, `TuvlClient.crud()` factory |
-| `src/client.test.ts` | 21 | `TuvlClient` REST/SSE execute, SSE auto-upgrade, error/suspended/engine-error rejection, manifest cache/invalidation, `executeVersioned`, `resumeWorkflow`, `setToken` |
+| `src/client.test.ts` | 22 | `TuvlClient` REST/SSE execute, SSE auto-upgrade, error/suspended/engine-error rejection, manifest cache/invalidation, `executeVersioned`, `resumeWorkflow`, `setToken`, manifest `public` flag pass-through |
 
 Run with:
 
