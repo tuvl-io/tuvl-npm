@@ -2,7 +2,8 @@
 
 > **Stable.** `@tuvl/client` 1.0.0 targets engine `tuvl >= 1.0.0`. The API is
 > stable and versioned under [SemVer](https://semver.org): breaking changes bump
-> the major version.
+> the major version. Versions before 1.0.0 (`2026.x`) were internal testing
+> builds and are deprecated in favor of 1.0.0.
 
 TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
 
