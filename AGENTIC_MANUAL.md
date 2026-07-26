@@ -145,7 +145,7 @@ The SDK is built and tested with the following toolchain. Agents generating cont
 ```ts
 import { TuvlAuth } from "@tuvl/client";
 
-const auth = new TuvlAuth({ baseUrl: "http://localhost:8000" });
+const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
 ```
 
 | Option | Type | Description |
@@ -238,7 +238,7 @@ without `token`. When in doubt, pass `token` on every `execute()` /
 import { TuvlClient } from "@tuvl/client";
 
 const client = new TuvlClient({
-  baseUrl: "http://localhost:8000",
+  baseUrl: "http://localhost:8885",
   token: access_token,         // optional — set per-call with options.token if preferred
   manifestCacheTtl: 60_000,    // optional — default 60 000 ms; 0 disables caching
 });
@@ -665,7 +665,7 @@ import { openGrpcStream } from "@tuvl/client";
 
 // Requires @protobuf-ts/grpcweb-transport to be installed
 for await (const event of openGrpcStream({
-  baseUrl: "http://localhost:8000",
+  baseUrl: "http://localhost:8885",
   workflowName: "my-workflow",
   payloadJson: JSON.stringify(payload),
   token,

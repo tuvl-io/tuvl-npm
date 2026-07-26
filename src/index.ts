@@ -5,7 +5,7 @@
  * ```ts
  * import { TuvlClient } from "@tuvl/client";
  *
- * const client = new TuvlClient({ baseUrl: "http://localhost:8000", token });
+ * const client = new TuvlClient({ baseUrl: "http://localhost:8885", token });
  *
  * // Plain REST call
  * const result = await client.execute("my-workflow", { payload: { id: 1 } });

@@ -8,7 +8,7 @@
  * Usage via TuvlClient.crud():
  *
  * ```ts
- * const client = new TuvlClient({ baseUrl: "http://localhost:8000", token });
+ * const client = new TuvlClient({ baseUrl: "http://localhost:8885", token });
  *
  * // List all candidates
  * const all = await client.crud("candidate").list();

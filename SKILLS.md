@@ -18,8 +18,8 @@ options:
 ```ts
 import { TuvlAuth, TuvlClient } from "@tuvl/client";
 
-const auth = new TuvlAuth({ baseUrl: "http://localhost:8000" });
-const client = new TuvlClient({ baseUrl: "http://localhost:8000" });
+const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
+const client = new TuvlClient({ baseUrl: "http://localhost:8885" });
 
 const { access_token } = await auth.loginWithPassword("user@example.com", "password123");
 client.setToken(access_token);

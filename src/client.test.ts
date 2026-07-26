@@ -50,8 +50,8 @@ const baseManifest: WorkflowManifest = {
 
 describe("TuvlClient constructor", () => {
   it("strips trailing slash from baseUrl", () => {
-    const c = new TuvlClient({ baseUrl: "http://localhost:8000/" });
-    expect(c.baseUrl).toBe("http://localhost:8000");
+    const c = new TuvlClient({ baseUrl: "http://localhost:8885/" });
+    expect(c.baseUrl).toBe("http://localhost:8885");
   });
 });
 

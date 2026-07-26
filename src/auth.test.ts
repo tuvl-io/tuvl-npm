@@ -21,10 +21,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("TuvlAuth", () => {
   describe("constructor", () => {
     it("strips trailing slash from baseUrl", () => {
-      const auth = new TuvlAuth({ baseUrl: "http://localhost:8000/" });
+      const auth = new TuvlAuth({ baseUrl: "http://localhost:8885/" });
       // Verify via getOAuthLoginUrl which uses the stored baseUrl
       expect(auth.getOAuthLoginUrl("google")).toBe(
-        "http://localhost:8000/auth/oauth/google/start",
+        "http://localhost:8885/auth/oauth/google/start",
       );
     });
   });

@@ -26,13 +26,13 @@ function errorResponse(status: number, text = "bad request"): Response {
 describe("Transport", () => {
   describe("constructor", () => {
     it("strips trailing slash from baseUrl", () => {
-      const t = new Transport({ baseUrl: "http://localhost:8000/" });
-      expect(t.baseUrl).toBe("http://localhost:8000");
+      const t = new Transport({ baseUrl: "http://localhost:8885/" });
+      expect(t.baseUrl).toBe("http://localhost:8885");
     });
 
     it("preserves baseUrl without trailing slash", () => {
-      const t = new Transport({ baseUrl: "http://localhost:8000" });
-      expect(t.baseUrl).toBe("http://localhost:8000");
+      const t = new Transport({ baseUrl: "http://localhost:8885" });
+      expect(t.baseUrl).toBe("http://localhost:8885");
     });
   });
 

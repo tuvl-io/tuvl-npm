@@ -35,7 +35,7 @@ npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
 import { TuvlAuth, TuvlClient } from "@tuvl/client";
 
 // 1. Login
-const auth = new TuvlAuth({ baseUrl: "http://localhost:8000" });
+const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
 const { access_token } = await auth.loginWithPassword("me@example.com", "secret");
 
 // 2. Who am I? (roles + scopes without touching Biscuit internals)
@@ -46,7 +46,7 @@ console.log(me.scopes);  // ["candidate:read", "requisition:write"]
 // 3. Run a workflow
 // Note: current engines require a token on every call unless the workflow
 // declares trigger.public: true (see manifest.public in AGENTIC_MANUAL.md §6).
-const client = new TuvlClient({ baseUrl: "http://localhost:8000", token: access_token });
+const client = new TuvlClient({ baseUrl: "http://localhost:8885", token: access_token });
 
 // Plain REST call
 const result = await client.execute("hello", {
@@ -86,7 +86,7 @@ The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, 
 ### Password login
 
 ```ts
-const auth = new TuvlAuth({ baseUrl: "http://localhost:8000" });
+const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
 const { access_token } = await auth.loginWithPassword("me@example.com", "secret");
 ```
 
@@ -296,7 +296,7 @@ Clears the manifest cache for one workflow, or all if no name is given.
 ```ts
 import { TuvlClient } from "@tuvl/client";
 
-const client = new TuvlClient({ baseUrl: "http://localhost:8000", token });
+const client = new TuvlClient({ baseUrl: "http://localhost:8885", token });
 
 // List all candidates (default limit: 100)
 const all = await client.crud("candidate").list();
