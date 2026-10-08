@@ -1,5 +1,5 @@
 /**
- * Tests for TuvlClient — orchestrates REST, SSE, and gRPC transports.
+ * Tests for TuvlClient — orchestrates the REST and SSE transports.
  *
  * Fetch is stubbed via vi.stubGlobal so no network calls are made.
  */

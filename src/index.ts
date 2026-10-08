@@ -23,7 +23,6 @@ export { TuvlAuth } from "./auth";
 export type { TuvlAuthOptions, BootstrapRequest } from "./auth";
 export { CrudClient } from "./crud";
 export { parseSseStream } from "./sse";
-export { openGrpcStream } from "./grpc";
 export { Transport } from "./transport";
 export {
   TuvlWorkflowError,

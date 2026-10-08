@@ -24,17 +24,17 @@ AI agent / application
 │      TuvlClient     │  ← workflow execution, manifest cache, transport, CRUD
 └────────┬────────────┘
          │
-   ┌────┴────┐───────────────┬───────────┬─────────────
-   ▼            ▼              ▼              ▼
- REST POST    SSE stream    gRPC-Web stream  CrudClient
-                                          /models/{model}/
+   ┌────┴────┬──────────────┐
+   ▼         ▼              ▼
+ REST POST  SSE stream    CrudClient
+                          /models/{model}/
 ```
 
 **Key invariants agents must encode:**
 
 1. `TuvlAuth` and `TuvlClient` are independent. Construct them separately, share only the token string.
 2. Every `execute()` call resolves the workflow manifest first (cached). The manifest drives transport auto-selection and trigger-path resolution.
-3. All three transports return the **same** `TOutput` type — the unwrapped `data` payload. Branch on `mode`, never on the response shape.
+3. Both transports return the **same** `TOutput` type — the unwrapped `data` payload. Branch on `mode`, never on the response shape.
 4. HITL suspension is modelled as a **rejection** with `TuvlWorkflowSuspendedError`. It is not a resolved value.
 5. Version pinning (`executeVersioned`) and HITL resumption (`resumeWorkflow`) are first-class methods — do not hand-craft fetch calls for these.
 6. CRUD operations use `client.crud(modelName)` which returns a `CrudClient` sharing the same transport. Never call `/models/` endpoints directly with `fetch`.
@@ -47,12 +47,6 @@ AI agent / application
 npm install @tuvl/client
 # or
 pnpm add @tuvl/client
-```
-
-**gRPC-Web peer dependencies** — only needed when `mode: "grpc"`:
-
-```bash
-npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
 ```
 
 ---
@@ -70,7 +64,6 @@ npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
 | `TuvlWorkflowSuspendedError` | class | HITL suspension rejection value |
 | `Transport` | class | Raw HTTP layer (advanced) |
 | `parseSseStream` | async generator | SSE frame parser (advanced) |
-| `openGrpcStream` | async generator | gRPC-Web stream (advanced) |
 | `agentProgress` | function | Read an autonomous `Agent` live loop frame from a `StepEvent` (or `null`) |
 
 ### 3.2 Named type exports
@@ -80,7 +73,7 @@ import type {
   // Auth
   TokenResponse,          // { access_token: string; token_type: string }
   MeResponse,             // { user_id, groups, scopes }
-  // Execution events (SSE / gRPC)
+  // Execution events (SSE)
   StepEvent,              // { event_type:"step", step_id, kind, signal, snapshot, duration_ms }
   AgentProgress,          // autonomous Agent live loop frame: { type, iteration, tool?, tokens_used?, signal? }
   DoneEvent,              // { event_type:"done", success, data, error }
@@ -263,7 +256,6 @@ const result = await client.execute<MyOutputType>("my-workflow", {
 
 | Condition | Transport used |
 |---|---|
-| `mode: "grpc"` | gRPC-Web |
 | `mode: "sse"` | SSE |
 | `mode: "rest"` | Plain JSON POST |
 | `onProgress` provided **and** `manifest.has_slow_steps === true` | SSE (auto) |
@@ -330,7 +322,7 @@ await client.execute("triage-ticket", {
 });
 ```
 
-No transport change is required — these frames arrive on the same SSE/gRPC
+No transport change is required — these frames arrive on the same SSE
 stream as every other `StepEvent`.
 
 ### 5.3 `client.executeVersioned(workflowName, version, options?)`
@@ -389,7 +381,7 @@ const finalResult = await client.resumeWorkflow<HireOutput>({
 | `humanInput` | `Record<string, unknown>` | Operator-supplied form data. Merged into workflow context at the paused step. |
 | `onProgress` | `(event: StepEvent) => void` | Step events for steps after the resume point. Auto-selects SSE. |
 | `onSuspended` | `(event: SuspendedEvent) => void` | Fires if the workflow suspends again at a second HITL step. |
-| `mode` | `"rest" \| "sse"` | Force transport (default: REST; SSE when `onProgress` is provided). gRPC not supported for resume. |
+| `mode` | `"rest" \| "sse"` | Force transport (default: REST; SSE when `onProgress` is provided). |
 | `token` | `string` | Per-call token override |
 | `signal` | `AbortSignal` | Cancellation signal |
 
@@ -658,21 +650,6 @@ for await (const frame of parseSseStream(response, signal)) {
 }
 ```
 
-### `openGrpcStream`
-
-```ts
-import { openGrpcStream } from "@tuvl/client";
-
-// Requires @protobuf-ts/grpcweb-transport to be installed
-for await (const event of openGrpcStream({
-  baseUrl: "http://localhost:8885",
-  workflowName: "my-workflow",
-  payloadJson: JSON.stringify(payload),
-  token,
-  signal,
-})) { /* … */ }
-```
-
 ---
 
 ## 11. Golden Rules for AI Code Generation
@@ -687,18 +664,16 @@ These are **hard constraints**. Violating any produces incorrect or unsafe TypeS
 6. **Pass `instanceId` (camelCase), not `instance_id` (snake_case), to `resumeWorkflow()`.** The SDK translates to the server's snake_case wire format internally.
 7. **Do not duplicate context data into the `payload`.** The server reads from the `payload` dict and places it into `context`; sending the same field twice does not merge — it overwrites based on step execution order.
 8. **Use `client.setToken(newToken)` after `auth.refresh()`.** The old token on the client instance does not auto-expire.
-9. **Do not pass `mode: "grpc"` to `resumeWorkflow()`.** gRPC-Web is not supported for the resume endpoint. Only `"rest"` (default) and `"sse"` are valid.
-10. **Only call `openGrpcStream` if `@protobuf-ts/grpcweb-transport` is in `node_modules`.** It is a peer dependency, not a hard dependency. Calling it without the peer installed throws a dynamic import error at runtime, not at build time.
-11. **Treat `SuspendedEvent` fields as optional.** The server may not populate every field on every HITL configuration. Always use optional chaining (`ev.instance_id?.`).
-12. **Use `AbortSignal` for cancellable workflows.** Long-running SSE or gRPC streams do not self-cancel on navigation. Pass `abortController.signal` and call `controller.abort()` on cleanup (e.g. React `useEffect` return).
-13. **Do not hardcode `baseUrl`.** Read it from environment configuration (`process.env.TUVL_BASE_URL`, `import.meta.env.VITE_TUVL_BASE_URL`, etc.). Never embed production server URLs in source code.
-14. **Do not log `access_token` values.** Biscuit tokens are opaque bearer credentials. Call `auth.getMe(token)` when you need user identity data — never decode or parse the token string directly.
-15. **Use `ExecuteVersionedOptions` (not `ExecuteOptions`) for `executeVersioned()` calls.** While `ExecuteVersionedOptions` extends `ExecuteOptions`, using the correct type makes the `version` field explicit and prevents type-widening mistakes.
-16. **Config files must remain `.mts`, not `.ts`.** `tsup.config.mts` and `vitest.config.mts` use `.mts` to force ESM loading. Renaming them to `.ts` re-introduces the Vite CJS Node API deprecation warning and will break CI.
-17. **`"ignoreDeprecations": "6.0"` in `tsconfig.json` is intentional.** It suppresses a TypeScript 6 error caused by tsup's DTS builder passing the deprecated `baseUrl` option internally. Do not remove it until tsup 9+ ships with a TS 6-compatible DTS pipeline.
-18. **Use `client.crud(modelName)` for all model data access.** Never hand-craft `fetch` calls to `/models/`. The `CrudClient` handles URL encoding, query param serialisation, auth injection, and error wrapping consistently.
-19. **Never throw `TuvlWorkflowError` / `TuvlWorkflowSuspendedError` from CRUD error paths.** `CrudClient` throws plain `Error` instances. Do not catch CRUD errors with `instanceof TuvlWorkflowError`.
-20. **Pass `filters` as `Record<string, string>` (not query string).** The SDK serialises `{ stage: "screening" }` to `?filter[stage]=screening` internally. Never manually append filter params to the model name string.
+9. **Treat `SuspendedEvent` fields as optional.** The server may not populate every field on every HITL configuration. Always use optional chaining (`ev.instance_id?.`).
+10. **Use `AbortSignal` for cancellable workflows.** Long-running SSE streams do not self-cancel on navigation. Pass `abortController.signal` and call `controller.abort()` on cleanup (e.g. React `useEffect` return).
+11. **Do not hardcode `baseUrl`.** Read it from environment configuration (`process.env.TUVL_BASE_URL`, `import.meta.env.VITE_TUVL_BASE_URL`, etc.). Never embed production server URLs in source code.
+12. **Do not log `access_token` values.** Biscuit tokens are opaque bearer credentials. Call `auth.getMe(token)` when you need user identity data — never decode or parse the token string directly.
+13. **Use `ExecuteVersionedOptions` (not `ExecuteOptions`) for `executeVersioned()` calls.** While `ExecuteVersionedOptions` extends `ExecuteOptions`, using the correct type makes the `version` field explicit and prevents type-widening mistakes.
+14. **Config files must remain `.mts`, not `.ts`.** `tsup.config.mts` and `vitest.config.mts` use `.mts` to force ESM loading. Renaming them to `.ts` re-introduces the Vite CJS Node API deprecation warning and will break CI.
+15. **`"ignoreDeprecations": "6.0"` in `tsconfig.json` is intentional.** It suppresses a TypeScript 6 error caused by tsup's DTS builder passing the deprecated `baseUrl` option internally. Do not remove it until tsup 9+ ships with a TS 6-compatible DTS pipeline.
+16. **Use `client.crud(modelName)` for all model data access.** Never hand-craft `fetch` calls to `/models/`. The `CrudClient` handles URL encoding, query param serialisation, auth injection, and error wrapping consistently.
+17. **Never throw `TuvlWorkflowError` / `TuvlWorkflowSuspendedError` from CRUD error paths.** `CrudClient` throws plain `Error` instances. Do not catch CRUD errors with `instanceof TuvlWorkflowError`.
+18. **Pass `filters` as `Record<string, string>` (not query string).** The SDK serialises `{ stage: "screening" }` to `?filter[stage]=screening` internally. Never manually append filter params to the model name string.
 
 ---
 

@@ -26,7 +26,6 @@ Always use `client.crud("modelName")` for database access.
 ## 5. HITL Resumption
 - Never pass the raw `SuspendedEvent` as `humanInput`.
 - Pass `instanceId` (camelCase) to `resumeWorkflow()`, which maps to the UUID from `SuspendedEvent.instance_id`.
-- Do not use `mode: "grpc"` for `resumeWorkflow()`.
 
 ## 6. Project Config Requirements
 - Keep `tsup.config.mts` and `vitest.config.mts` as `.mts` to force ESM loading.

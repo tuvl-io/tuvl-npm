@@ -44,29 +44,15 @@
     "agents",
     "ai",
     "fastapi",
-    "grpc-web",
     "sse",
     "tuvl"
   ],
   "license": "MIT",
   "devDependencies": {
-    "@protobuf-ts/runtime": "^2.11.1",
     "@types/node": "^25.0.0",
     "tsup": "^8.1.0",
     "typescript": "^6.0.0",
     "vite": "^8.0.0",
     "vitest": "^4.0.0"
-  },
-  "peerDependencies": {
-    "@protobuf-ts/grpcweb-transport": "^2.9.0",
-    "@protobuf-ts/runtime-rpc": "^2.9.0"
-  },
-  "peerDependenciesMeta": {
-    "@protobuf-ts/grpcweb-transport": {
-      "optional": true
-    },
-    "@protobuf-ts/runtime-rpc": {
-      "optional": true
-    }
   }
 }

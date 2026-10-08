@@ -6,7 +6,7 @@
 
 TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
 
-Supports three transports — plain REST, Server-Sent Events, and gRPC-Web — with automatic transport selection based on the workflow's streaming hints. Also ships first-class support for Human-in-the-Loop (HITL) resumption, explicit version pinning, and typed CRUD access to tuvl model endpoints.
+Supports two transports — plain REST and Server-Sent Events — with automatic transport selection based on the workflow's streaming hints. Also ships first-class support for Human-in-the-Loop (HITL) resumption, explicit version pinning, and typed CRUD access to tuvl model endpoints.
 
 ---
 
@@ -18,12 +18,6 @@ npm install @tuvl/client
 pnpm add @tuvl/client
 # or
 yarn add @tuvl/client
-```
-
-**gRPC-Web** is optional. Install the peer dependencies only if you need `mode: "grpc"`:
-
-```bash
-npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
 ```
 
 ---
@@ -154,7 +148,6 @@ await auth.logout(token);
 |---|---|
 | `mode: "rest"` | Plain JSON POST |
 | `mode: "sse"` | SSE stream |
-| `mode: "grpc"` | gRPC-Web stream |
 | `onProgress` provided **and** workflow `has_slow_steps` | SSE (auto) |
 | Default | Plain JSON POST |
 
@@ -172,14 +165,14 @@ await auth.logout(token);
 
 ### `client.execute(workflowName, options?)`
 
-Executes a workflow and returns `Promise<TOutput>` — **the unwrapped `data` payload, identical across REST / SSE / gRPC**.
+Executes a workflow and returns `Promise<TOutput>` — **the unwrapped `data` payload, identical across REST and SSE**.
 
 | Option | Type | Description |
 |---|---|---|
 | `payload` | `Record<string, unknown>` | JSON body matching the workflow's `input_schema` |
-| `onProgress` | `(event: StepEvent) => void` | Called for every step event (SSE / gRPC only) |
+| `onProgress` | `(event: StepEvent) => void` | Called for every step event (SSE only) |
 | `onSuspended` | `(event: SuspendedEvent) => void` | Called once when the workflow hits a HITL step. After this fires the promise rejects with `TuvlWorkflowSuspendedError` |
-| `mode` | `"rest" \| "sse" \| "grpc"` | Force a specific transport |
+| `mode` | `"rest" \| "sse"` | Force a specific transport |
 | `token` | `string` | Per-call token override |
 | `signal` | `AbortSignal` | Cancellation signal |
 
@@ -392,7 +385,6 @@ The package also exports its internal building blocks for advanced use:
 ```ts
 import { Transport }      from "@tuvl/client"; // raw HTTP layer
 import { parseSseStream } from "@tuvl/client"; // SSE frame parser (async generator)
-import { openGrpcStream } from "@tuvl/client"; // gRPC-Web stream (async generator)
 ```
 
 ---

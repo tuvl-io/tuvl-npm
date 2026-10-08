@@ -24,7 +24,7 @@ export interface MeResponse {
   scopes: string[];
 }
 
-/** A single execution event streamed by the tuvl server (SSE or gRPC). */
+/** A single execution event streamed by the tuvl server over SSE. */
 export interface StepEvent {
   event_type: "step";
   step_id: string;
@@ -63,8 +63,7 @@ export interface AgentProgress {
 
 /**
  * Read the {@link AgentProgress} payload from a streamed event, or `null` when
- * the event is not an agent progress frame. Works for both the SSE
- * `StepEvent` and the gRPC `GrpcStepEvent` (structural).
+ * the event is not an agent progress frame.
  */
 export function agentProgress(event: {
   kind: string;
@@ -150,7 +149,7 @@ export interface ExecuteOptions<_TOutput = unknown> {
   payload?: Record<string, unknown>;
   onProgress?: (event: StepEvent) => void;
   onSuspended?: (event: SuspendedEvent) => void;
-  mode?: "sse" | "grpc" | "rest";
+  mode?: "sse" | "rest";
   token?: string;
   signal?: AbortSignal;
 }
