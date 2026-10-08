@@ -6,9 +6,8 @@
  *   mode="rest"  (default)    → plain POST, unwraps the REST envelope
  *   mode="sse"  (auto)        → SSE streaming when onProgress is provided
  *                               AND the workflow has_slow_steps === true
- *   mode="grpc"               → gRPC-Web via sonora (requires peer deps)
  *
- * Return-value contract — IDENTICAL across all three transports:
+ * Return-value contract — IDENTICAL across both transports:
  *
  *   • on success                  → resolves with the `data` value
  *   • on workflow-business error  → rejects with `TuvlWorkflowError`
@@ -62,7 +61,7 @@ export class TuvlClient {
     this.transport.setToken(token);
   }
 
-  /** Expose the base URL for callers that need raw access (e.g. gRPC). */
+  /** Expose the base URL for callers that need raw access. */
   get baseUrl(): string {
     return this.transport.baseUrl;
   }
@@ -116,10 +115,9 @@ export class TuvlClient {
    * Execute a workflow and return its `data` payload.
    *
    * Transport selection:
-   * 1. mode="grpc"            → gRPC-Web (always, regardless of onProgress)
-   * 2. mode="sse"             → SSE stream
-   * 3. onProgress provided    → SSE if workflow has_slow_steps, else REST
-   * 4. default                → REST
+   * 1. mode="sse"             → SSE stream
+   * 2. onProgress provided    → SSE if workflow has_slow_steps, else REST
+   * 3. default                → REST
    *
    * @throws {TuvlWorkflowError}          when the workflow returns success=false
    * @throws {TuvlWorkflowSuspendedError} when the workflow suspends at HITL
@@ -136,11 +134,7 @@ export class TuvlClient {
 
     const useSse =
       mode === "sse" ||
-      (mode !== "rest" && mode !== "grpc" && !!onProgress && manifest.has_slow_steps);
-
-    if (mode === "grpc") {
-      return this._executeGrpc<TOutput>(manifest, payload, onProgress, onSuspended, token, signal);
-    }
+      (mode !== "rest" && !!onProgress && manifest.has_slow_steps);
 
     if (useSse) {
       return this._executeSse<TOutput>(manifest, payload, onProgress, onSuspended, token, signal);
@@ -192,18 +186,7 @@ export class TuvlClient {
 
     const useSse =
       mode === "sse" ||
-      (mode !== "rest" && mode !== "grpc" && !!onProgress && syntheticManifest.has_slow_steps);
-
-    if (mode === "grpc") {
-      return this._executeGrpc<TOutput>(
-        syntheticManifest,
-        payload,
-        onProgress,
-        onSuspended,
-        token,
-        signal,
-      );
-    }
+      (mode !== "rest" && !!onProgress && syntheticManifest.has_slow_steps);
 
     if (useSse) {
       return this._executeSse<TOutput>(
@@ -326,76 +309,6 @@ export class TuvlClient {
     }
 
     return done.data as TOutput;
-  }
-
-  // ── gRPC-Web transport ────────────────────────────────────────────────────
-
-  private async _executeGrpc<TOutput>(
-    manifest: WorkflowManifest,
-    payload: Record<string, unknown>,
-    onProgress: ((event: StepEvent) => void) | undefined,
-    onSuspended: ((event: SuspendedEvent) => void) | undefined,
-    token: string | undefined,
-    signal: AbortSignal | undefined,
-  ): Promise<TOutput> {
-    const { openGrpcStream } = await import("./grpc");
-
-    let finalSnapshot: Record<string, unknown> | undefined;
-
-    for await (const event of openGrpcStream({
-      baseUrl: this.baseUrl,
-      workflowName: manifest.name,
-      payloadJson: JSON.stringify(payload),
-      token,
-      signal,
-    })) {
-      switch (event.event_type) {
-        case "step":
-          onProgress?.(event as StepEvent);
-          break;
-        case "done":
-          // gRPC servicer emits the last-step snapshot as `snapshot_json`.
-          // It is NOT pre-wrapped in {success, data, error} like SSE.
-          finalSnapshot = (event as unknown as { snapshot: Record<string, unknown> }).snapshot;
-          break;
-        case "suspended": {
-          // The gRPC servicer stuffs the HITL payload into snapshot_json.
-          const snap = (event as unknown as { snapshot: Record<string, unknown> }).snapshot;
-          const suspended: SuspendedEvent = {
-            event_type: "suspended",
-            paused_step_id: (event as unknown as { step_id?: string }).step_id,
-            ...snap,
-          };
-          onSuspended?.(suspended);
-          throw new TuvlWorkflowSuspendedError(suspended);
-        }
-        case "error":
-          throw new Error(
-            `tuvl workflow '${manifest.name}' gRPC error: ${event.error_detail ?? "unknown"}`,
-          );
-      }
-    }
-
-    if (finalSnapshot === undefined) {
-      throw new Error(`tuvl gRPC stream for '${manifest.name}' ended without a done event`);
-    }
-
-    // gRPC mirrors the REST workflow contract via the workflow snapshot:
-    // a `_last_error` key in context signals a business failure.
-    if ("_last_error" in finalSnapshot) {
-      throw new TuvlWorkflowError(
-        `tuvl workflow '${manifest.name}' failed`,
-        finalSnapshot,
-        (finalSnapshot._last_error as never) ?? null,
-      );
-    }
-
-    // Prefer the `_response` key when the workflow set one; else return the
-    // full public snapshot.  This mirrors the REST envelope's `data` semantics.
-    if ("_response" in finalSnapshot) {
-      return finalSnapshot._response as TOutput;
-    }
-    return finalSnapshot as TOutput;
   }
 
   // ── REST envelope ─────────────────────────────────────────────────────────

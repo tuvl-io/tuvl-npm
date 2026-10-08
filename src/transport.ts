@@ -2,7 +2,7 @@
  * Low-level HTTP transport for @tuvl/client.
  *
  * Handles auth header injection, JSON serialisation, and returns raw
- * Response objects so higher-level transports (SSE, gRPC) can consume them.
+ * Response objects so higher-level transports (SSE) can consume them.
  */
 
 export interface TransportOptions {
@@ -11,7 +11,7 @@ export interface TransportOptions {
 }
 
 export class Transport {
-  /** Public so TuvlClient can forward it to the gRPC subtransport. */
+  /** Public so callers can build raw URLs against the same server. */
   readonly baseUrl: string;
   private defaultToken: string | undefined;
 
