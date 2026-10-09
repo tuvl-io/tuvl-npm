@@ -49,10 +49,13 @@
   ],
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^25.0.0",
+    "@types/node": "^20.19.43",
     "tsup": "^8.1.0",
     "typescript": "^6.0.0",
     "vite": "^8.0.0",
     "vitest": "^4.0.0"
+  },
+  "bin": {
+    "tuvl-client": "./dist/cli.js"
   }
 }
