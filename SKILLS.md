@@ -26,79 +26,105 @@ client.setToken(access_token);
 ```
 
 ---
+name: generate-types
+description: Generate typed workflow inputs and outputs from a running server.
+options:
+  argument-hint: "[server-url]"
+---
+
+### Body
+
+1. Run the generator against the server (or a saved `openapi.json`).
+2. Construct the client with the generated `Workflows` type.
+
+```bash
+npx tuvl-client generate --url http://localhost:8885 --out src/tuvl.generated.ts
+```
+
+```ts
+import { TuvlClient } from "@tuvl/client";
+import type { Workflows } from "./tuvl.generated";
+
+const client = new TuvlClient<Workflows>({ baseUrl: "http://localhost:8885", token });
+```
+
+---
 name: execute-workflow
-description: Run a TUVL workflow by name and handle the result.
+description: Run a workflow by name and handle every outcome.
 options:
   argument-hint: "[workflow-name]"
 ---
 
 ### Body
 
-1. Use `client.execute()` and pass the payload.
-2. Wrap the execution in a `try/catch` block.
-3. Check for specific SDK error types.
-
-Note: this assumes `client` already carries a token (see `authenticate-user`). Current engines reject unauthenticated calls with 401 unless the workflow's manifest has `public: true`.
+1. Call `client.execute(name, input)`.
+2. A `RunHandle` means the run waits on a person/approval or is still running.
+3. Catch `TuvlRunError` (error end, failure, abort) and `TuvlApiError` (refused request).
 
 ```ts
-import { TuvlWorkflowError, TuvlWorkflowSuspendedError } from "@tuvl/client";
+import { RunHandle, TuvlApiError, TuvlRunError } from "@tuvl/client";
 
 try {
-  const result = await client.execute<OutputShape>("my-workflow", {
-    payload: { key: "value" }
-  });
-  console.log("Success:", result);
-} catch (err) {
-  if (err instanceof TuvlWorkflowSuspendedError) {
-    console.log("Suspended for HITL:", err.suspended);
-  } else if (err instanceof TuvlWorkflowError) {
-    console.error("Workflow failed:", err.error?.message);
+  const result = await client.execute("triage_ticket", { subject, body, customer_email });
+  if (result instanceof RunHandle) {
+    const output = await result.wait({ timeoutMs: 60_000, untilWaiting: true });
+    if (output === undefined) console.log("waiting on", result.run?.current_agent);
   } else {
-    throw err;
+    console.log(result.category);
   }
+} catch (err) {
+  if (err instanceof TuvlRunError) console.error(err.status, err.body);
+  else if (err instanceof TuvlApiError) console.error(err.status, err.detail);
+  else throw err;
 }
 ```
 
 ---
-name: resume-hitl-workflow
-description: Resume a paused workflow by providing the required human input.
+name: decide-approval
+description: Answer a run that waits on a person or a tool-call approval.
 options:
-  argument-hint: "[instance-id]"
+  argument-hint: "[run-id]"
 ---
 
 ### Body
 
-1. Collect the human input corresponding to the suspended UI schema.
-2. Call `client.resumeWorkflow()` providing the instance ID and human input.
+1. List the approvals the caller may decide and pick the run's.
+2. Submit form values (human agent) or a decision (tool call).
+3. Wait for the run's output.
 
 ```ts
-const finalResult = await client.resumeWorkflow<OutputShape>({
-  instanceId: "uuid-from-suspended-event",
-  humanInput: { approved: true, note: "Looks good" }
-});
+const handle = client.run(runId);
+const approval = (await client.approvals.list()).find((a) => a.run_id === runId);
+if (approval?.kind === "human") await client.approvals.decide(approval.approval_id, { values: { approved: true } });
+else if (approval) await client.approvals.decide(approval.approval_id, { decision: "approve" });
+const output = await handle.wait();
 ```
 
 ---
-name: perform-crud-operation
-description: Interact with database models via the auto-generated CRUD endpoints.
+name: follow-run
+description: Stream a run's events (agents, decisions, tool calls) as they happen.
+options:
+  argument-hint: "[run-id]"
+---
+
+### Body
+
+```ts
+for await (const event of client.run(runId).events()) {
+  console.log(event.seq, event.type, event.agent_id ?? "", event.payload);
+}
+```
+
+---
+name: crud-model
+description: Read and write records of a model that opted into CRUD (`spec.api.crud`).
 options:
   argument-hint: "[model-name]"
 ---
 
 ### Body
 
-1. Use `client.crud(modelName)`.
-2. Wrap in a plain `try/catch` block (CRUD does not throw `TuvlWorkflowError`).
-3. For fetching related records or filtering, use options.
-
 ```ts
-// Fetch a list of records
-const records = await client.crud<RecordType>("candidate").list({
-  filters: { stage: "screening" },
-  include: ["posting"],
-  limit: 50
-});
-
-// Update a record
-const updated = await client.crud("candidate").update(id, { stage: "interview" });
+const tickets = await client.crud<Ticket>("ticket").list({ filters: { urgency: "high" }, limit: 20 });
+const one = await client.crud<Ticket>("ticket").get(tickets[0].id);
 ```

@@ -1,0 +1,32 @@
+kind: Workflow
+version: tuvl/v2
+metadata:
+  name: approve_amount
+  description: Auto-approve small amounts; a manager approves the rest.
+spec:
+  trigger:
+    http: { path: /api/approve, method: POST, public: true }
+    mcp: { enabled: true }
+    input: { amount: int, note: "str?" }
+  agents:
+    - id: lane
+      description: Small amounts go straight through
+      engine: decide
+      inputs: { amount: int }
+      outputs: { lane: "enum[auto, review]" }
+      decide:
+        rules:
+          - { when: "amount > 100", then: review }
+          - { when: "true", then: auto }
+      routes: { auto: END, review: approval, error: END.failed }
+    - id: approval
+      description: A manager approves a large amount
+      engine: human
+      inputs: { amount: int }
+      outputs: { approved: bool }
+      human: { title: "Approve {{ amount }}?", show: [amount], route_on: approved }
+      routes: { "true": END, "false": END.rejected, error: END.failed }
+  outputs:
+    default: { status: 200, body: { amount: "{{ amount }}", lane: "{{ lane }}" } }
+    rejected: { status: 409, body: { error: rejected } }
+    failed: { status: 500, body: { error: failed } }

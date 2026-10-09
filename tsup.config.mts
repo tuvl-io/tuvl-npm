@@ -1,6 +1,6 @@
 import { defineConfig } from "tsup";
 
-export default defineConfig({
+export default defineConfig([{
   entry: ["src/index.ts"],
   format: ["esm", "cjs"],
   dts: true,
@@ -10,9 +10,11 @@ export default defineConfig({
   treeshake: true,
   target: "es2020",
   outDir: "dist",
-  external: [
-    "@protobuf-ts/grpcweb-transport",
-    "@protobuf-ts/runtime-rpc",
-    "@protobuf-ts/runtime",
-  ],
-});
+}, {
+  entry: { cli: "src/cli.ts" },
+  format: ["cjs"],
+  sourcemap: false,
+  clean: false,
+  target: "node18",
+  outDir: "dist",
+}]);

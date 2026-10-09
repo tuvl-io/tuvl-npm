@@ -1,31 +1,27 @@
 # @tuvl/client Agent Rules
 
-This repository uses the `@tuvl/client` SDK to interact with the TUVL server. As an AI agent working in this codebase, you must follow these rules strictly.
+This repository uses the `@tuvl/client` 2.x SDK to talk to a tuvl 2.0 server. As an AI agent working in this codebase, follow these rules.
 
 ## 1. Do Not Invent Methods
-The full public API is strictly defined:
-- `TuvlClient`: `execute`, `executeVersioned`, `resumeWorkflow`, `getManifest`, `listWorkflows`, `setToken`, `invalidateManifest`, `crud`.
+The public API is:
+- `TuvlClient`: `execute`, `start`, `run`, `runs.{list, get, events, control, export}`, `approvals.{list, decide}`, `crud`, `setToken`.
+- `RunHandle`: `get`, `events`, `wait`, `pause`, `resume`, `abort`, `steer`.
 - `TuvlAuth`: `bootstrap`, `loginWithPassword`, `getMe`, `getOAuthLoginUrl`, `refresh`, `logout`.
-Never invent methods outside this list.
+The 1.x methods `executeVersioned`, `resumeWorkflow`, `getManifest`, `listWorkflows` no longer exist.
 
-## 2. Independent Instances
-`TuvlAuth` and `TuvlClient` are independent. Construct them separately and share only the access token string.
+## 2. Types Come From the Server
+Generate `Workflows` with `npx tuvl-client generate` and construct `new TuvlClient<Workflows>(...)`. Never hand-write workflow input/output types; regenerate when the workflow contracts change.
 
-## 3. Error Handling
-Always wrap `execute()`, `executeVersioned()`, and `resumeWorkflow()` in `try/catch`.
-- First check `err instanceof TuvlWorkflowSuspendedError` to handle Human-in-the-Loop (HITL) suspensions.
-- Then check `err instanceof TuvlWorkflowError` to handle business failures.
-- CRUD operations throw plain `Error` on failure, not workflow errors.
+## 3. Results and Errors
+- `execute()` resolves the end's body, or a `RunHandle` (check `result instanceof RunHandle`) when the run waits on a person/approval or outlives the trigger's `sync_timeout`.
+- An end with status ≥ 400, a failed or aborted run rejects with `TuvlRunError` (`status`, `body`, `runId`).
+- A refused request (auth, unknown workflow, input not matching `trigger.input`) rejects with `TuvlApiError` (`status`, `detail`).
 
-## 4. CRUD Operations
-Always use `client.crud("modelName")` for database access.
-- Methods available: `list(options?)`, `get(id, options?)`, `create(body, options?)`, `update(id, body, options?)`, `delete(id, options?)`.
-- Never manually call `/models/` endpoints using `fetch`.
-- Note: Filters must be passed as `Record<string, string>` via the `filters` option, not appended to the URL string.
+## 4. People and Approvals
+Answer a waiting run with `client.approvals.decide(approvalId, { values })` (human forms) or `{ decision: "approve" | "reject" | "edit", edited_args? }` (tool calls), then `handle.wait()`.
 
-## 5. HITL Resumption
-- Never pass the raw `SuspendedEvent` as `humanInput`.
-- Pass `instanceId` (camelCase) to `resumeWorkflow()`, which maps to the UUID from `SuspendedEvent.instance_id`.
+## 5. CRUD Operations
+Use `client.crud("modelName")`: `list`, `get`, `create`, `update`, `delete`. The model must opt in with `spec.api.crud`. Pass filters via the `filters` option, never in the URL.
 
 ## 6. Project Config Requirements
 - Keep `tsup.config.mts` and `vitest.config.mts` as `.mts` to force ESM loading.

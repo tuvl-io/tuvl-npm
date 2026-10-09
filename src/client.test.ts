@@ -1,11 +1,9 @@
 /**
- * Tests for TuvlClient — orchestrates the REST and SSE transports.
- *
- * Fetch is stubbed via vi.stubGlobal so no network calls are made.
+ * TuvlClient 2.0 against a stubbed fetch: runs, handles, events, approvals.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { TuvlClient } from "./client";
-import { TuvlWorkflowError, TuvlWorkflowSuspendedError, type WorkflowManifest } from "./types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RunHandle, TuvlClient } from "./client";
+import { TuvlApiError, TuvlRunError, type Run } from "./types";
 
 const mockFetch = vi.fn<typeof fetch>();
 
@@ -14,350 +12,139 @@ beforeEach(() => {
   vi.stubGlobal("fetch", mockFetch);
 });
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
 }
 
-function sseResponse(raw: string): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(encoder.encode(raw));
-      controller.close();
-    },
-  });
-  return new Response(stream, {
-    status: 200,
-    headers: { "Content-Type": "text/event-stream" },
-  });
+function run(overrides: Partial<Run> = {}): Run {
+  return {
+    run_id: "r1",
+    workflow: "greet",
+    status: "running",
+    trigger: "api",
+    current_agent: null,
+    end: null,
+    output: null,
+    error: null,
+    tokens_used: 0,
+    created_at: null,
+    updated_at: null,
+    status_url: "/api/runs/r1",
+    events_url: "/api/runs/r1/events",
+    ...overrides,
+  };
 }
 
-const baseManifest: WorkflowManifest = {
-  name: "my-wf",
-  trigger_path: "/api/workflows/my-wf/run",
-  trigger_method: "POST",
-  has_slow_steps: false,
-  slow_kinds_present: [],
-  steps: [],
+type Workflows = {
+  greet: { input: { name: string }; output: { text: string } };
 };
 
-// ── TuvlClient constructor ────────────────────────────────────────────────
+const client = () => new TuvlClient<Workflows>({ baseUrl: "http://srv/", token: "tok" });
 
-describe("TuvlClient constructor", () => {
-  it("strips trailing slash from baseUrl", () => {
-    const c = new TuvlClient({ baseUrl: "http://localhost:8885/" });
-    expect(c.baseUrl).toBe("http://localhost:8885");
+function call(n = 0): { url: string; init: RequestInit } {
+  const [url, init] = mockFetch.mock.calls[n] as [string, RequestInit];
+  return { url, init };
+}
+
+describe("execute()", () => {
+  it("posts the input and resolves the end's body", async () => {
+    mockFetch.mockResolvedValueOnce(json({ text: "hello ada" }, 201, { "x-tuvl-run-id": "r1" }));
+    const out = await client().execute("greet", { name: "ada" });
+    expect(out).toEqual({ text: "hello ada" });
+    const { url, init } = call();
+    expect(url).toBe("http://srv/api/workflows/greet/runs?wait=true");
+    expect(JSON.parse(String(init.body))).toEqual({ input: { name: "ada" } });
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
+  it("resolves a RunHandle on 202", async () => {
+    mockFetch.mockResolvedValueOnce(json(run({ status: "waiting_human" }), 202, { "x-tuvl-run-id": "r1" }));
+    const out = await client().execute("greet", { name: "ada" });
+    expect(out).toBeInstanceOf(RunHandle);
+    expect((out as RunHandle).id).toBe("r1");
+    expect((out as RunHandle).run?.status).toBe("waiting_human");
+  });
+
+  it("rejects an error end with TuvlRunError and a refusal with TuvlApiError", async () => {
+    mockFetch.mockResolvedValueOnce(json({ error: "no" }, 422, { "x-tuvl-run-id": "r9" }));
+    const failed = await client().execute("greet", { name: "x" }).catch((e: unknown) => e);
+    expect(failed).toBeInstanceOf(TuvlRunError);
+    expect(failed).toMatchObject({ status: 422, body: { error: "no" }, runId: "r9" });
+
+    mockFetch.mockResolvedValueOnce(json({ detail: [{ loc: ["name"], msg: "bad" }] }, 422));
+    const refused = await client().execute("greet", { name: "x" }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(TuvlApiError);
+    expect(refused).toMatchObject({ status: 422, detail: [{ loc: ["name"], msg: "bad" }] });
+  });
+
+  it("start() does not wait", async () => {
+    mockFetch.mockResolvedValueOnce(json(run({ status: "queued" }), 202, { "x-tuvl-run-id": "r1" }));
+    const handle = await client().start("greet", { name: "ada" });
+    expect(handle.id).toBe("r1");
+    expect(call().url).toContain("wait=false");
   });
 });
 
-// ── Manifest ─────────────────────────────────────────────────────────────
-
-describe("TuvlClient.getManifest()", () => {
-  it("fetches and returns the manifest", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse(baseManifest));
-    const c = new TuvlClient({ baseUrl: "http://srv", token: "tok" });
-    const m = await c.getManifest("my-wf");
-    expect(m.name).toBe("my-wf");
-    const [url] = mockFetch.mock.calls[0] as [string];
-    expect(url).toBe("http://srv/api/_system/workflows/my-wf");
-  });
-
-  it("returns cached manifest on second call", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse(baseManifest));
-    const c = new TuvlClient({ baseUrl: "http://srv", manifestCacheTtl: 60_000 });
-    await c.getManifest("my-wf");
-    await c.getManifest("my-wf");
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("re-fetches after TTL expires", async () => {
-    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(baseManifest)));
-    const c = new TuvlClient({ baseUrl: "http://srv", manifestCacheTtl: 0 });
-    await c.getManifest("my-wf");
-    await c.getManifest("my-wf");
+describe("RunHandle", () => {
+  it("wait() polls until the run ends and returns its output", async () => {
+    mockFetch
+      .mockResolvedValueOnce(json(run({ status: "running" })))
+      .mockResolvedValueOnce(json(run({ status: "completed", output: { status: 201, body: { text: "hi" } } })));
+    const out = await client().run<{ text: string }>("r1").wait({ intervalMs: 1 });
+    expect(out).toEqual({ text: "hi" });
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("re-fetches after invalidateManifest()", async () => {
-    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(baseManifest)));
-    const c = new TuvlClient({ baseUrl: "http://srv", manifestCacheTtl: 60_000 });
-    await c.getManifest("my-wf");
-    c.invalidateManifest("my-wf");
-    await c.getManifest("my-wf");
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+  it("wait() rejects failures and error ends; untilWaiting stops at a person", async () => {
+    mockFetch.mockResolvedValueOnce(json(run({ status: "failed", error: "kaboom" })));
+    await expect(client().run("r1").wait()).rejects.toBeInstanceOf(TuvlRunError);
+    mockFetch.mockResolvedValueOnce(json(run({ status: "completed", output: { status: 409, body: "no" } })));
+    await expect(client().run("r1").wait()).rejects.toMatchObject({ status: 409, body: "no" });
+    mockFetch.mockResolvedValueOnce(json(run({ status: "waiting_approval" })));
+    expect(await client().run("r1").wait({ untilWaiting: true })).toBeUndefined();
   });
 
-  it("invalidateManifest() with no arg clears all cached entries", async () => {
-    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(baseManifest)));
-    const c = new TuvlClient({ baseUrl: "http://srv", manifestCacheTtl: 60_000 });
-    await c.getManifest("wf-a");
-    await c.getManifest("wf-b");
-    c.invalidateManifest();
-    await c.getManifest("wf-a");
-    // 2 initial fetches + 1 re-fetch after invalidation = 3
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+  it("wait() times out", async () => {
+    mockFetch.mockImplementation(async () => json(run({ status: "running" })));
+    await expect(client().run("r1").wait({ intervalMs: 5, timeoutMs: 1 })).rejects.toThrow("still running");
   });
 
-  it("URL-encodes the workflow name", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ ...baseManifest, name: "my wf" }));
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    await c.getManifest("my wf");
-    const [url] = mockFetch.mock.calls[0] as [string];
-    expect(url).toBe("http://srv/api/_system/workflows/my%20wf");
+  it("controls the run", async () => {
+    mockFetch.mockImplementation(async () => json(run({ status: "paused" })));
+    const handle = client().run("r1");
+    await handle.pause();
+    await handle.steer("check the invoice");
+    expect(call(0).url).toBe("http://srv/api/runs/r1/pause");
+    expect(call(1).url).toBe("http://srv/api/runs/r1/steer");
+    expect(JSON.parse(String(call(1).init.body))).toEqual({ message: "check the invoice" });
   });
 
-  it("passes through the public flag", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ ...baseManifest, public: true }));
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    const m = await c.getManifest("my-wf");
-    expect(m.public).toBe(true);
-  });
-});
-
-// ── execute() REST ────────────────────────────────────────────────────────
-
-describe("TuvlClient.execute() — REST mode", () => {
-  it("returns unwrapped data on success", async () => {
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(
-        jsonResponse({ success: true, status_code: 200, data: { answer: 42 }, error: null }),
-      );
-
-    const c = new TuvlClient({ baseUrl: "http://srv", token: "tok" });
-    const result = await c.execute("my-wf");
-    expect(result).toEqual({ answer: 42 });
-  });
-
-  it("forces REST when mode='rest' even with onProgress", async () => {
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(
-        jsonResponse({ success: true, status_code: 200, data: "done", error: null }),
-      );
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    const steps: unknown[] = [];
-    const result = await c.execute("my-wf", {
-      mode: "rest",
-      onProgress: (e) => steps.push(e),
-    });
-    expect(result).toBe("done");
-    // second call should be a POST (not SSE)
-    const [, init] = mockFetch.mock.calls[1] as [string, RequestInit];
-    expect((init.headers as Record<string, string>)["Accept"]).toBe("application/json");
-  });
-
-  it("throws TuvlWorkflowError when success=false", async () => {
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: false,
-          status_code: 422,
-          data: null,
-          error: { code: "INVALID", message: "bad" },
-        }),
-      );
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    await expect(c.execute("my-wf")).rejects.toThrow(TuvlWorkflowError);
-  });
-
-  it("throws Error on HTTP transport error", async () => {
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(new Response("Server Error", { status: 500 }));
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    await expect(c.execute("my-wf")).rejects.toThrow("HTTP 500");
+  it("follows events over SSE", async () => {
+    const event = { run_id: "r1", seq: 3, ts: null, type: "agent_started", agent_id: "greet", engine: "code", tokens: null, latency_ms: null, payload: {} };
+    mockFetch.mockResolvedValueOnce(new Response(`id: 3\nevent: agent_started\ndata: ${JSON.stringify(event)}\n\n`));
+    const seen = [];
+    for await (const e of client().run("r1").events({ fromSeq: 3 })) seen.push(e);
+    expect(seen).toEqual([event]);
+    expect(call().url).toBe("http://srv/api/runs/r1/events?from_seq=3");
+    expect((call().init.headers as Record<string, string>).Accept).toBe("text/event-stream");
   });
 });
 
-// ── execute() SSE ─────────────────────────────────────────────────────────
-
-describe("TuvlClient.execute() — SSE mode", () => {
-  const slowManifest: WorkflowManifest = { ...baseManifest, has_slow_steps: true };
-
-  it("uses SSE when mode='sse'", async () => {
-    const sse = [
-      "event: step",
-      'data: {"step_id":"s1","kind":"llm","signal":"ok","snapshot":{},"duration_ms":10}',
-      "",
-      "event: done",
-      'data: {"success":true,"data":{"out":1},"error":null}',
-      "",
-      "",
-    ].join("\n");
-
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(sseResponse(sse));
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    const steps: unknown[] = [];
-    const result = await c.execute("my-wf", {
-      mode: "sse",
-      onProgress: (e) => steps.push(e),
-    });
-    expect(result).toEqual({ out: 1 });
-    expect(steps).toHaveLength(1);
+describe("runs and approvals", () => {
+  it("lists runs with filters and surfaces refusals", async () => {
+    mockFetch.mockResolvedValueOnce(json([run()]));
+    expect(await client().runs.list({ workflow: "greet", status: "running", limit: 5 })).toHaveLength(1);
+    expect(call().url).toBe("http://srv/api/runs?workflow=greet&status=running&limit=5");
+    mockFetch.mockResolvedValueOnce(json({ detail: "Not authenticated" }, 401));
+    await expect(client().runs.get("r1")).rejects.toMatchObject({ status: 401, detail: "Not authenticated" });
   });
 
-  it("auto-upgrades to SSE when has_slow_steps=true and onProgress provided", async () => {
-    const sse = [
-      "event: done",
-      'data: {"success":true,"data":"fast","error":null}',
-      "",
-      "",
-    ].join("\n");
-
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(slowManifest))
-      .mockResolvedValueOnce(sseResponse(sse));
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    const result = await c.execute("my-wf", { onProgress: () => {} });
-    expect(result).toBe("fast");
-    // Second fetch should be SSE (Accept: text/event-stream)
-    const [, init] = mockFetch.mock.calls[1] as [string, RequestInit];
-    expect((init.headers as Record<string, string>)["Accept"]).toBe("text/event-stream");
-  });
-
-  it("throws TuvlWorkflowError when SSE done event has success=false", async () => {
-    const sse = [
-      "event: done",
-      'data: {"success":false,"data":null,"error":{"code":"ERR","message":"bad"}}',
-      "",
-      "",
-    ].join("\n");
-
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(sseResponse(sse));
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    await expect(c.execute("my-wf", { mode: "sse" })).rejects.toThrow(TuvlWorkflowError);
-  });
-
-  it("throws TuvlWorkflowSuspendedError when SSE emits suspended", async () => {
-    const sse = [
-      "event: suspended",
-      'data: {"instance_id":"inst-1","paused_step_id":"review"}',
-      "",
-      "",
-    ].join("\n");
-
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(sseResponse(sse));
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    await expect(c.execute("my-wf", { mode: "sse" })).rejects.toThrow(
-      TuvlWorkflowSuspendedError,
-    );
-  });
-
-  it("throws Error when SSE emits error event", async () => {
-    const sse = [
-      "event: error",
-      'data: {"message":"engine crashed","details":"OOM"}',
-      "",
-      "",
-    ].join("\n");
-
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(sseResponse(sse));
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    await expect(c.execute("my-wf", { mode: "sse" })).rejects.toThrow("engine crashed");
-  });
-
-  it("throws when SSE stream ends without a done event", async () => {
-    const sse = [
-      "event: step",
-      'data: {"step_id":"s1","kind":"llm","signal":"ok","snapshot":{},"duration_ms":1}',
-      "",
-      "",
-    ].join("\n");
-
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest))
-      .mockResolvedValueOnce(sseResponse(sse));
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    await expect(c.execute("my-wf", { mode: "sse" })).rejects.toThrow(
-      "ended without a done event",
-    );
-  });
-});
-
-// ── executeVersioned() ────────────────────────────────────────────────────
-
-describe("TuvlClient.executeVersioned()", () => {
-  it("uses versioned trigger path", async () => {
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse(baseManifest)) // manifest fetch
-      .mockResolvedValueOnce(
-        jsonResponse({ success: true, status_code: 200, data: "v2result", error: null }),
-      );
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    const result = await c.executeVersioned("my-wf", "v2");
-    expect(result).toBe("v2result");
-
-    const [url] = mockFetch.mock.calls[1] as [string];
-    expect(url).toBe("http://srv/v2/run/my-wf");
-  });
-
-  it("falls back gracefully when manifest fetch fails", async () => {
-    mockFetch
-      .mockRejectedValueOnce(new Error("manifest 404")) // manifest fails
-      .mockResolvedValueOnce(
-        jsonResponse({ success: true, status_code: 200, data: "ok", error: null }),
-      );
-
-    const c = new TuvlClient({ baseUrl: "http://srv" });
-    const result = await c.executeVersioned("my-wf", "v1");
-    expect(result).toBe("ok");
-  });
-});
-
-// ── resumeWorkflow() ──────────────────────────────────────────────────────
-
-describe("TuvlClient.resumeWorkflow()", () => {
-  it("POSTs to /api/workflows/resume with instance_id", async () => {
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ success: true, status_code: 200, data: "resumed", error: null }),
-    );
-
-    const c = new TuvlClient({ baseUrl: "http://srv", token: "tok" });
-    const result = await c.resumeWorkflow({ instanceId: "inst-1", humanInput: { ok: true } });
-    expect(result).toBe("resumed");
-
-    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://srv/api/workflows/resume");
-    const body = JSON.parse(init.body as string);
-    expect(body.instance_id).toBe("inst-1");
-    expect(body.human_input).toEqual({ ok: true });
-  });
-});
-
-// ── setToken() ────────────────────────────────────────────────────────────
-
-describe("TuvlClient.setToken()", () => {
-  it("updates the token used in subsequent calls", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(baseManifest));
-    const c = new TuvlClient({ baseUrl: "http://srv", token: "old" });
-    c.setToken("new");
-    await c.getManifest("my-wf");
-    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer new");
+  it("lists and decides approvals", async () => {
+    mockFetch.mockResolvedValueOnce(json([{ approval_id: "a1", kind: "human" }]));
+    expect((await client().approvals.list())[0].approval_id).toBe("a1");
+    mockFetch.mockResolvedValueOnce(json({ status: "decided" }));
+    await client().approvals.decide("a1", { values: { approved: true } });
+    expect(call(1).url).toBe("http://srv/api/approvals/a1");
+    expect(JSON.parse(String(call(1).init.body))).toEqual({ values: { approved: true } });
   });
 });

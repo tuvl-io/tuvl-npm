@@ -60,35 +60,35 @@ export class Transport {
   }
 
   /**
-   * Open an SSE-capable stream and return the raw Response.
-   * Callers are responsible for reading `response.body`.
+   * Send a request and return the raw Response without checking its status,
+   * for callers that read status codes, headers or streams themselves.
    */
-  async postStream(
+  async request(
+    method: string,
     path: string,
-    body: unknown,
-    options?: { token?: string; signal?: AbortSignal },
+    options?: {
+      body?: unknown;
+      query?: Record<string, string | number | boolean | undefined>;
+      accept?: string;
+      token?: string;
+      signal?: AbortSignal;
+    },
   ): Promise<Response> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "text/event-stream",
-      "Cache-Control": "no-cache",
-    };
+    const headers: Record<string, string> = { Accept: options?.accept ?? "application/json" };
+    if (options?.body !== undefined) headers["Content-Type"] = "application/json";
     const auth = this.authHeader(options?.token);
     if (auth) headers["Authorization"] = auth;
-
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(options?.query ?? {})) {
+      if (value !== undefined) query.set(key, String(value));
+    }
+    const qs = query.toString();
+    return fetch(`${this.baseUrl}${path}${qs ? `?${qs}` : ""}`, {
+      method,
       headers,
-      body: JSON.stringify(body),
+      body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: options?.signal,
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl SSE ${path} → HTTP ${response.status}: ${text}`);
-    }
-
-    return response;
   }
 
   /** Simple GET returning parsed JSON. */
