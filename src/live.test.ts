@@ -5,7 +5,9 @@
  * carry `runs:read` + `approvals:decide` (an admin or the dev key works).
  */
 import { describe, expect, it } from "vitest";
+import { TuvlAuth } from "./auth";
 import { RunHandle, TuvlClient } from "./client";
+import { readToken } from "./token";
 import { generate, type OpenApiDocument } from "./generate";
 import type { RunEvent } from "./types";
 
@@ -18,6 +20,17 @@ type Workflows = {
 
 describe.skipIf(!url)("live server", () => {
   const client = new TuvlClient<Workflows>({ baseUrl: url ?? "", token });
+
+  it.skipIf(!token || token.split(".").length !== 3)("reads the token's claims as the server sees them", async () => {
+    const me = await new TuvlAuth({ baseUrl: url ?? "" }).getMe(token ?? "");
+    const claims = readToken(token ?? "");
+    expect(claims.iss).toBe("tuvl");
+    expect({ user_id: claims.sub, groups: claims.groups, scopes: claims.scopes }).toEqual({
+      user_id: me.user_id,
+      groups: me.groups,
+      scopes: me.scopes,
+    });
+  });
 
   it("generates types from /openapi.json", async () => {
     const doc = (await (await fetch(`${url}/openapi.json`)).json()) as OpenApiDocument;
