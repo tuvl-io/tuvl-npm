@@ -121,7 +121,7 @@ is one of `run_queued`, `run_started`, `agent_started`, `agent_completed`,
 
 ## Authentication
 
-The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies or Biscuit decoding logic. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
 
 ### `new TuvlAuth(options)`
 
@@ -158,9 +158,29 @@ window.location.href = auth.getOAuthLoginUrl("google"); // or "github" / "micros
 const token = new URLSearchParams(window.location.search).get("token")!;
 ```
 
+### Read the token locally
+
+Access tokens are Ed25519-signed JWTs, so their claims are readable on the client — enough to
+show who is signed in and to refresh before expiry:
+
+```ts
+import { isTokenExpired, readToken } from "@tuvl/client";
+
+const claims = readToken(token);   // { sub, groups, scopes, tenant?, iat, exp?, ... }
+if (isTokenExpired(token)) {       // expired, or within 30 s of it
+  token = (await auth.refresh(token)).access_token;
+}
+```
+
+`readToken` does **not** verify the signature — use it for display, not for access decisions in
+a client you don't control. The server is the authority, and only it knows about logouts and
+ended sessions. Services that verify tokens themselves can fetch tuvl's public key from
+`GET /auth/jwks.json` (`alg: EdDSA`).
+
 ### Get current user identity and roles
 
-Biscuit tokens are protobuf-encoded and cannot be decoded in pure JS. Use `getMe()` to ask the server to decode the token and return the user's identity, group memberships, and permission scopes:
+`getMe()` asks the server, so it also fails for a revoked token or a user whose sessions were
+ended:
 
 ```ts
 const me = await auth.getMe(token);

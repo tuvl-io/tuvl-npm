@@ -13,11 +13,11 @@ export interface TokenResponse {
  * Returned by GET /auth/me.
  */
 export interface MeResponse {
-  /** User UUID extracted from the `user()` Datalog fact in the token. */
+  /** User id (the token's `sub` claim). */
   user_id: string;
-  /** Role names from all `group()` facts — e.g. ["hr_manager", "member"]. */
+  /** Role names (the `groups` claim) — e.g. ["hr_manager", "member"]. */
   groups: string[];
-  /** Permission scopes from all `scope()` facts — e.g. ["candidate:read"]. */
+  /** Permission scopes (the `scopes` claim) — e.g. ["candidate:read"]. */
   scopes: string[];
 }
 
@@ -145,7 +145,7 @@ export type WorkflowTypes = Record<string, WorkflowContract>;
 export interface TuvlClientOptions {
   /** Base URL of the tuvl server, e.g. `http://localhost:8885`. */
   baseUrl: string;
-  /** Biscuit bearer token sent with every request (see `setToken`). */
+  /** Access token (JWT) sent with every request (see `setToken`). */
   token?: string;
 }
 
