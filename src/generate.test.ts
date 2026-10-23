@@ -29,3 +29,37 @@ describe("generate", () => {
     expect(code.match(/^ {2}\S.*: \{$/gm)).toHaveLength(1); // only operations with x-tuvl-workflow
   });
 });
+
+describe("file inputs", () => {
+  it("types a multipart file part as Blob", () => {
+    expect(tsType({ type: "string", format: "binary" })).toBe("Blob");
+    const out = generate({
+      paths: {
+        "/t/intake": {
+          post: {
+            "x-tuvl-workflow": "intake",
+            requestBody: {
+              content: {
+                "multipart/form-data": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      doc: { type: "string", format: "binary" },
+                      pages: { type: "array", items: { type: "string", format: "binary" } },
+                      note: { type: "string" },
+                    },
+                    required: ["doc"],
+                  },
+                },
+              },
+            },
+            responses: { "200": { description: "END" } },
+          },
+        },
+      },
+    });
+    expect(out).toContain("doc: Blob;");
+    expect(out).toContain("pages?: Array<Blob>;");
+    expect(out).toContain("note?: string;");
+  });
+});

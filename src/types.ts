@@ -39,6 +39,21 @@ export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "
 export const WAITING_STATUSES: readonly RunStatus[] = ["waiting_human", "waiting_approval", "paused"];
 
 /** A pending human form or tool-call approval (`GET /api/approvals`). */
+/** One webhook notification of a run (`client.runs.webhooks`). */
+export interface WebhookDelivery {
+  id: string;
+  webhook: string;
+  type: string;
+  seq: number;
+  agent: string | null;
+  status: "pending" | "delivered" | "dead";
+  attempts: number;
+  last_status: number | null;
+  last_error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+}
+
 export interface Approval {
   approval_id: string;
   run_id: string;

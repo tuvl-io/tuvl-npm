@@ -68,6 +68,8 @@ export class Transport {
     path: string,
     options?: {
       body?: unknown;
+      /** A multipart body; the content type (with its boundary) is set by `fetch`. */
+      form?: FormData;
       query?: Record<string, string | number | boolean | undefined>;
       accept?: string;
       token?: string;
@@ -75,7 +77,7 @@ export class Transport {
     },
   ): Promise<Response> {
     const headers: Record<string, string> = { Accept: options?.accept ?? "application/json" };
-    if (options?.body !== undefined) headers["Content-Type"] = "application/json";
+    if (options?.body !== undefined && !options.form) headers["Content-Type"] = "application/json";
     const auth = this.authHeader(options?.token);
     if (auth) headers["Authorization"] = auth;
     const query = new URLSearchParams();
@@ -86,7 +88,7 @@ export class Transport {
     return fetch(`${this.baseUrl}${path}${qs ? `?${qs}` : ""}`, {
       method,
       headers,
-      body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body: options?.form ?? (options?.body !== undefined ? JSON.stringify(options.body) : undefined),
       signal: options?.signal,
     });
   }

@@ -46,6 +46,22 @@ function call(n = 0): { url: string; init: RequestInit } {
   return { url, init };
 }
 
+describe("execute() with files", () => {
+  it("sends multipart, leaving the content type to fetch", async () => {
+    mockFetch.mockResolvedValueOnce(json({ text: "ok" }, 200, { "x-tuvl-run-id": "r1" }));
+    const file = new File(["hello"], "a.txt", { type: "text/plain" });
+    await new TuvlClient({ baseUrl: "http://srv", token: "tok" }).execute("intake", { doc: file, note: "hi" } as never);
+    const { url, init } = call();
+    expect(url).toBe("http://srv/api/workflows/intake/runs?wait=true");
+    expect(init.body).toBeInstanceOf(FormData);
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBeUndefined();
+    expect(headers.Authorization).toBe("Bearer tok");
+    expect(((init.body as FormData).get("doc") as File).name).toBe("a.txt");
+    expect((init.body as FormData).get("note")).toBe("hi");
+  });
+});
+
 describe("execute()", () => {
   it("posts the input and resolves the end's body", async () => {
     mockFetch.mockResolvedValueOnce(json({ text: "hello ada" }, 201, { "x-tuvl-run-id": "r1" }));

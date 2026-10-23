@@ -20,6 +20,14 @@ export { readToken, tokenExpiresAt, isTokenExpired } from "./token";
 export type { TokenClaims } from "./token";
 export type { TuvlAuthOptions, BootstrapRequest } from "./auth";
 export { CrudClient } from "./crud";
+export { WebhookError, verifyWebhook, webhookHandler } from "./webhooks";
+export type {
+  NotificationType,
+  RunNotification,
+  VerifyOptions,
+  WebhookFailure,
+  WebhookHandlerOptions,
+} from "./webhooks";
 export { parseSseStream } from "./sse";
 export { Transport } from "./transport";
 export { TERMINAL_STATUSES, TuvlApiError, TuvlRunError, WAITING_STATUSES } from "./types";
@@ -37,6 +45,7 @@ export type {
   RunStatus,
   TokenResponse,
   TuvlClientOptions,
+  WebhookDelivery,
   WorkflowContract,
   WorkflowTypes,
 } from "./types";

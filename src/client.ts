@@ -4,6 +4,7 @@
  */
 
 import { CrudClient } from "./crud";
+import { toFormData } from "./form";
 import { parseSseStream } from "./sse";
 import { Transport } from "./transport";
 import {
@@ -18,6 +19,7 @@ import {
   type RunEvent,
   type RunStatus,
   type TuvlClientOptions,
+  type WebhookDelivery,
   type WorkflowTypes,
 } from "./types";
 
@@ -168,8 +170,9 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
     options?: RequestOptions,
   ): Promise<T | RunHandle<T>> {
     const path = `/api/workflows/${encodeURIComponent(workflow)}/runs`;
+    const form = toFormData(input);
     const response = await this.transport.request("POST", path, {
-      body: { input },
+      ...(form ? { form } : { body: { input } }),
       query: { wait },
       ...options,
     });
@@ -214,7 +217,15 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
         ...options,
       }),
 
-    /** The run's journal as a replayable fixture (`tuvl runs pin`). */
+    /** The webhook notifications of a run and whether each was delivered. */
+    webhooks: (runId: string, options?: RequestOptions): Promise<WebhookDelivery[]> =>
+      this.json<WebhookDelivery[]>("GET", `/api/runs/${encodeURIComponent(runId)}/webhooks`, options),
+
+    /** Send one notification again (scope `runs:control`). */
+    redeliverWebhook: (runId: string, deliveryId: string, options?: RequestOptions): Promise<{ id: string; status: string }> =>
+      this.json("POST", `/api/runs/${encodeURIComponent(runId)}/webhooks/${encodeURIComponent(deliveryId)}/redeliver`, options),
+
+    /** The run's journal as a replayable fixture (`tuvl pin run`). */
     export: (runId: string, options?: RequestOptions): Promise<Record<string, unknown>> =>
       this.json("GET", `/api/runs/${encodeURIComponent(runId)}/export`, options),
   };

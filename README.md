@@ -80,6 +80,45 @@ workflow name with untyped input and output.
 
 `client.start(workflow, input)` starts without waiting and returns a `RunHandle`.
 
+**Files.** For a workflow whose trigger has `http.upload`, pass a `File` or `Blob` as the value of a
+`file` input (an array for `list[file]`). The client then sends `multipart/form-data`: files as file parts,
+objects and arrays as JSON text, everything else as text. The server stores the file and hands the workflow a
+reference; the answer is the same as for any run. `tuvl-client generate` types such inputs as `Blob`.
+
+```ts
+await client.execute("intake", { invoice: fileInput.files[0], note: "March" });
+```
+
+### Webhooks: be told instead of polling
+
+A workflow can declare webhooks (`spec.webhooks` in its YAML; the engine's `docs/webhooks.md` covers the
+server side). A notification says only that a run reached a stage: the run id, what happened and a journal
+position. It carries no input or output, so you pull what you need with your own token.
+
+```ts
+import { TuvlClient, webhookHandler } from "@tuvl/client";
+
+const client = new TuvlClient({ baseUrl: "https://tuvl.example.com", token: serviceToken }); // scope runs:read
+
+// Next.js route handler, Cloudflare Worker, Deno, Bun, Hono … anything that speaks Request/Response
+export const POST = webhookHandler({
+  secrets: [process.env.OPS_WEBHOOK_SECRET!],            // add the old secret too while rotating
+  onNotification: async (n) => {
+    if (await alreadySeen(n.id)) return;                 // delivery is at-least-once
+    const run = await client.run(n.run_id).get();        // pull with your own token
+    await pushToDevices(run);
+  },
+});
+```
+
+For Express, give the route the raw body (`express.raw({ type: "application/json" })`) and call
+`verifyWebhook(req.body, req.header("tuvl-signature"), secrets)`; it throws `WebhookError` (answer 401) unless the
+signature matches, the body is untouched and the timestamp is within five minutes. Never verify a re-serialised
+body. `client.runs.webhooks(runId)` lists a run's notifications and `redeliverWebhook` sends one again.
+
+A phone should not hold the secret: receive on your backend, verify, then push only the run id to the device
+(FCM, APNs, ntfy). The app pulls the run with the user's own token.
+
 ### `RunHandle`
 
 | Member | |

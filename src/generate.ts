@@ -15,6 +15,7 @@ type Schema = {
   oneOf?: Schema[];
   additionalProperties?: boolean | Schema;
   description?: string;
+  format?: string;
 };
 
 interface Operation {
@@ -40,7 +41,7 @@ export function tsType(schema: Schema | undefined, indent = ""): string {
   if (Array.isArray(schema.type)) return schema.type.map((t) => tsType({ ...schema, type: t }, indent)).join(" | ");
   switch (schema.type) {
     case "string":
-      return "string";
+      return schema.format === "binary" ? "Blob" : "string";
     case "integer":
     case "number":
       return "number";
@@ -75,7 +76,8 @@ function inputSchema(op: Operation): Schema {
     properties[p.name] = p.schema ?? {};
     if (p.required) required.push(p.name);
   }
-  const body = op.requestBody?.content?.["application/json"]?.schema;
+  const content = op.requestBody?.content;
+  const body = (content?.["multipart/form-data"] ?? content?.["application/json"])?.schema;
   Object.assign(properties, body?.properties ?? {});
   required.push(...(body?.required ?? []));
   return { type: "object", properties, required };
