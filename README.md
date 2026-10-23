@@ -338,3 +338,7 @@ pnpm typecheck && pnpm test && pnpm build
 # live tests against a server running live/workflows/approve_amount.yaml
 TUVL_LIVE_URL=http://localhost:8885 TUVL_LIVE_TOKEN=... pnpm test src/live.test.ts
 ```
+
+## License
+
+Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Versions through `2.0.0-beta.1` were published under the MIT License and remain available under it. Later versions are Apache-2.0.
