@@ -18,8 +18,9 @@ npm install @tuvl/client
 pnpm add @tuvl/client
 ```
 
-**2.0 public beta** (until 2.0.0 on 20 October): `npm install @tuvl/client@beta` installs
-`2.0.0-beta.1`, which talks to a tuvl `2.0.0b1` server (`uv tool install tuvl==2.0.0b1`).
+**2.0 public beta** (until 2.0.0): `npm install @tuvl/client@beta` installs
+`2.0.0-beta.2`, which talks to a tuvl `2.0.0b8` or later server (`uv tool install --prerelease=allow "tuvl>=2.0.0b8"`);
+file uploads and webhook verification need it.
 The plain install above stays on 1.x until then.
 
 ---
