@@ -4,7 +4,9 @@ This repository uses the `@tuvl/client` 2.x SDK to talk to a tuvl 2.0 server. As
 
 ## 1. Do Not Invent Methods
 The public API is:
-- `TuvlClient`: `execute`, `start`, `run`, `runs.{list, get, events, control, export}`, `approvals.{list, decide}`, `crud`, `setToken`.
+- `TuvlClient`: `execute`, `start`, `run`, `runs.{list, get, events, control, export, webhooks}`, `approvals.{list, decide}`, `crud`, `setToken`.
+- Webhook receiving: `verifyWebhook`, `webhookHandler`, `WebhookError`.
+- Live drafts: `RunHandle.onToken`, `tokens`, `stream`; `runs.tokens`, `runs.stream`; `isTokenEvent`.
 - `RunHandle`: `get`, `events`, `wait`, `pause`, `resume`, `abort`, `steer`.
 - `TuvlAuth`: `bootstrap`, `loginWithPassword`, `getMe`, `getOAuthLoginUrl`, `refresh`, `logout`.
 The 1.x methods `executeVersioned`, `resumeWorkflow`, `getManifest`, `listWorkflows` no longer exist.
@@ -19,6 +21,9 @@ Generate `Workflows` with `npx tuvl-client generate` and construct `new TuvlClie
 
 ## 4. People and Approvals
 Answer a waiting run with `client.approvals.decide(approvalId, { values })` (human forms) or `{ decision: "approve" | "reject" | "edit", edited_args? }` (tool calls), then `handle.wait()`.
+
+## 4a. Files and Webhooks
+Pass a `File` or `Blob` as a `file` input of a workflow whose trigger has `http.upload`; the client sends `multipart/form-data`, and the server makes the file reference. Verify webhooks against the raw body with `verifyWebhook` or `webhookHandler`, de-duplicate on the notification id, and pull the run with your own token.
 
 ## 5. CRUD Operations
 Use `client.crud("modelName")`: `list`, `get`, `create`, `update`, `delete`. The model must opt in with `spec.api.crud`. Pass filters via the `filters` option, never in the URL.

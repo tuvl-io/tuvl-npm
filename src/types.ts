@@ -129,6 +129,35 @@ export interface RunEvent {
   payload: Record<string, unknown>;
 }
 
+/**
+ * A piece of an agent's answer while the model is still writing it (`token_delta`). Not a journal event:
+ * it has no `seq`. `replay` is true for the draft so far, sent once to a client that joined mid-agent.
+ */
+export interface TokenDelta {
+  type: "token_delta";
+  run_id: string;
+  agent_id: string;
+  delta: string;
+  replay: boolean;
+}
+
+/** The agent is starting its answer again (a retry, or a failure): discard the draft (`token_reset`). */
+export interface TokenReset {
+  type: "token_reset";
+  run_id: string;
+  agent_id: string;
+}
+
+export type TokenEvent = TokenDelta | TokenReset;
+
+/** Whether a streamed item is a live draft rather than a journal event. */
+export function isTokenEvent(event: { type: string }): event is TokenEvent {
+  return event.type === "token_delta" || event.type === "token_reset";
+}
+
+/** What `stream()` yields: journal events and live drafts, told apart by `type`. */
+export type RunStreamEvent = RunEvent | TokenEvent;
+
 /** The body of `POST /api/approvals/{id}`. */
 export interface ApprovalDecision {
   /** Tool approvals: approve, reject, or approve with edited arguments. */

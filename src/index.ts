@@ -15,6 +15,7 @@
  */
 
 export { RunHandle, TuvlClient } from "./client";
+export { isTokenEvent } from "./types";
 export { TuvlAuth } from "./auth";
 export { readToken, tokenExpiresAt, isTokenExpired } from "./token";
 export type { TokenClaims } from "./token";
@@ -28,7 +29,7 @@ export type {
   WebhookFailure,
   WebhookHandlerOptions,
 } from "./webhooks";
-export { parseSseStream } from "./sse";
+export { parseSseEvents, parseSseStream } from "./sse";
 export { Transport } from "./transport";
 export { TERMINAL_STATUSES, TuvlApiError, TuvlRunError, WAITING_STATUSES } from "./types";
 export type {
@@ -43,6 +44,10 @@ export type {
   RunEvent,
   RunEventType,
   RunStatus,
+  RunStreamEvent,
+  TokenDelta,
+  TokenEvent,
+  TokenReset,
   TokenResponse,
   TuvlClientOptions,
   WebhookDelivery,

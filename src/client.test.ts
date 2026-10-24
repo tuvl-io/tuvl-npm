@@ -146,6 +146,74 @@ describe("RunHandle", () => {
   });
 });
 
+describe("live drafts", () => {
+  const sse = (...frames: string[]) => new Response(frames.join(""));
+  const delta = (agent: string, text: string, replay = false) =>
+    `event: token_delta\ndata: ${JSON.stringify({ run_id: "r1", agent_id: agent, delta: text, replay })}\n\n`;
+  const reset = (agent: string) => `event: token_reset\ndata: ${JSON.stringify({ run_id: "r1", agent_id: agent })}\n\n`;
+  const started = `id: 1\nevent: agent_started\ndata: ${JSON.stringify({ run_id: "r1", seq: 1, type: "agent_started", agent_id: "write" })}\n\n`;
+
+  it("events() never asks for drafts, so it is the journal as before", async () => {
+    mockFetch.mockResolvedValueOnce(sse(started));
+    for await (const _ of client().run("r1").events()) void _;
+    expect(call().url).toBe("http://srv/api/runs/r1/events");
+  });
+
+  it("stream() asks for drafts and yields both kinds, in order", async () => {
+    mockFetch.mockResolvedValueOnce(sse(started, delta("write", "Hi"), reset("write")));
+    const seen = [];
+    for await (const e of client().run("r1").stream()) seen.push(e.type);
+    expect(call().url).toBe("http://srv/api/runs/r1/events?drafts=true");
+    expect(seen).toEqual(["agent_started", "token_delta", "token_reset"]);
+  });
+
+  it("tokens() yields only drafts, optionally one agent's", async () => {
+    mockFetch.mockResolvedValueOnce(sse(delta("a", "x"), started, delta("b", "y"), delta("a", "z")));
+    const seen = [];
+    for await (const e of client().run("r1").tokens({ agentId: "a" })) seen.push(e.type === "token_delta" ? e.delta : "reset");
+    expect(seen).toEqual(["x", "z"]);
+    expect(call().url).toBe("http://srv/api/runs/r1/events?drafts=true");
+  });
+
+  it("onToken() hands each piece to the listener and a reset to onReset", async () => {
+    mockFetch.mockResolvedValueOnce(sse(delta("write", "He", true), delta("write", "llo"), reset("write"), delta("write", "Hi")));
+    let text = "";
+    const resets: string[] = [];
+    const live = client().run("r1").onToken((piece) => (text += piece), {
+      onReset: (agent) => {
+        resets.push(agent);
+        text = "";
+      },
+    });
+    await live.done;
+    expect(text).toBe("Hi");
+    expect(resets).toEqual(["write"]);
+  });
+
+  it("onToken() stops when asked and does not throw for its own abort", async () => {
+    mockFetch.mockImplementationOnce(async (_url, init) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(delta("write", "partial")));
+          init?.signal?.addEventListener("abort", () => controller.close());
+        },
+      });
+      return new Response(body);
+    });
+    const pieces: string[] = [];
+    const live = client().run("r1").onToken((piece) => pieces.push(piece));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    live.stop();
+    await expect(live.done).resolves.toBeUndefined();
+    expect(pieces).toEqual(["partial"]);
+  });
+
+  it("onToken() rejects done when the stream cannot be opened", async () => {
+    mockFetch.mockResolvedValueOnce(json({ detail: "Not authenticated" }, 401));
+    await expect(client().run("r1").onToken(() => undefined).done).rejects.toMatchObject({ status: 401 });
+  });
+});
+
 describe("runs and approvals", () => {
   it("lists runs with filters and surfaces refusals", async () => {
     mockFetch.mockResolvedValueOnce(json([run()]));

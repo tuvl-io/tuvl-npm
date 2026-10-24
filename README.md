@@ -120,6 +120,31 @@ body. `client.runs.webhooks(runId)` lists a run's notifications and `redeliverWe
 A phone should not hold the secret: receive on your backend, verify, then push only the run id to the device
 (FCM, APNs, ntfy). The app pulls the run with the user's own token.
 
+### Showing an answer while the model writes it
+
+An `llm` agent declared with `stream_tokens: true` (and, when it has several `str` outputs, `stream_field`) sends the text
+of that output to the run's event stream as it is produced, so a UI is not frozen for the length of the call. Ask for it with
+`onToken`, `tokens()` or `stream()`; plain `events()` is unchanged and never receives drafts.
+
+```ts
+const handle = client.run(runId); // or the RunHandle that execute() returned
+
+const live = handle.onToken((piece) => (box.textContent += piece), {
+  onReset: () => (box.textContent = ""), // the agent is starting its answer again: drop the draft
+});
+const output = await handle.wait(); // the final, validated result as always
+await live.done;
+```
+
+- A **piece** is the next part of the text. A client that joins while the agent is running first gets the draft so far in one
+  piece (`replay: true` on the event).
+- A **reset** (`token_reset`) means discard what you showed: the agent retried, or its answer was rejected. The finished result is
+  in the run output (`wait()`), never only in the pieces, so a client that missed some loses nothing.
+- `tokens({ agentId? })` is the same as an async iterator of `token_delta` and `token_reset`; `stream()` yields them together with
+  the journal events, told apart by `type` (`isTokenEvent(event)` narrows).
+- Drafts are not journaled and are not kept: they exist while the run is running. A model that reasons before it answers sends
+  nothing until its answer starts.
+
 ### `RunHandle`
 
 | Member | |
@@ -127,6 +152,8 @@ A phone should not hold the secret: receive on your backend, verify, then push o
 | `id`, `run` | run id; the run as last seen |
 | `get()` | refresh (`GET /api/runs/{id}`) |
 | `events({ fromSeq?, follow? })` | async iterator of `RunEvent` over SSE: replay, then live until the run ends |
+| `onToken(listener, { onReset?, agentId? })` | call `listener(piece)` for each piece of an answer as it is written; returns `{ stop, done }` |
+| `tokens({ agentId? })`, `stream({ fromSeq?, follow? })` | async iterators of live drafts only, or of journal events and drafts together |
 | `wait({ intervalMs?, timeoutMs?, untilWaiting? })` | poll until the run ends; resolves the output or rejects `TuvlRunError`. `untilWaiting` also stops when it waits on a person |
 | `pause()`, `resume()`, `abort()`, `steer(message)` | operator control (scope `runs:control`) |
 
@@ -134,7 +161,7 @@ A phone should not hold the secret: receive on your backend, verify, then push o
 
 ### `client.runs`
 
-`list({ workflow?, status?, limit? })`, `get(id)`, `events(id, opts)`,
+`list({ workflow?, status?, limit? })`, `get(id)`, `events(id, opts)`, `stream(id, opts)`, `tokens(id, opts)`,
 `control(id, action, message?)`, `export(id)` (the journal as a replayable
 fixture).
 
@@ -342,4 +369,4 @@ TUVL_LIVE_URL=http://localhost:8885 TUVL_LIVE_TOKEN=... pnpm test src/live.test.
 
 ## License
 
-Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Versions through `2.0.0-beta.1` were published under the MIT License and remain available under it. Later versions are Apache-2.0.
+Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Versions before `2.0.0-beta.2` keep the terms they were published with.

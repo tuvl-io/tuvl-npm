@@ -5,10 +5,11 @@
 
 import { CrudClient } from "./crud";
 import { toFormData } from "./form";
-import { parseSseStream } from "./sse";
+import { parseSseEvents, parseSseStream } from "./sse";
 import { Transport } from "./transport";
 import {
   TERMINAL_STATUSES,
+  isTokenEvent,
   TuvlApiError,
   TuvlRunError,
   WAITING_STATUSES,
@@ -18,6 +19,9 @@ import {
   type Run,
   type RunEvent,
   type RunStatus,
+  type RunStreamEvent,
+  type TokenDelta,
+  type TokenEvent,
   type TuvlClientOptions,
   type WebhookDelivery,
   type WorkflowTypes,
@@ -59,6 +63,50 @@ export class RunHandle<TOutput = unknown> {
   /** The run's events: replay from `fromSeq`, then live until it ends (unless `follow: false`). */
   events(options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunEvent> {
     return this.client.runs.events(this.id, options);
+  }
+
+  /** The run's journal events and the live draft of an answer being written, in order. */
+  stream(options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunStreamEvent> {
+    return this.client.runs.stream(this.id, options);
+  }
+
+  /**
+   * The text of answers as the model writes it (`stream_tokens: true` on an `llm` agent): `token_delta`
+   * pieces to append and `token_reset` to throw the draft away. A client that joins mid-agent first gets the
+   * draft so far as one piece with `replay: true`. Ends when the run does.
+   */
+  tokens(options?: RequestOptions & { agentId?: string }): AsyncGenerator<TokenEvent> {
+    return this.client.runs.tokens(this.id, options);
+  }
+
+  /**
+   * Call `listener` with each piece of an answer as it is written, until the run ends or `stop()` is called.
+   * `onReset` is called when the draft must be discarded. Resolve `done` to know the stream has ended
+   * (it rejects if the stream fails).
+   *
+   * ```ts
+   * const live = handle.onToken((delta) => (box.textContent += delta), { onReset: () => (box.textContent = "") });
+   * const result = await handle.wait();
+   * await live.done;
+   * ```
+   */
+  onToken(
+    listener: (delta: string, event: TokenDelta) => void,
+    options: RequestOptions & { agentId?: string; onReset?: (agentId: string) => void } = {},
+  ): { stop: () => void; done: Promise<void> } {
+    const controller = new AbortController();
+    options.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    const done = (async () => {
+      try {
+        for await (const event of this.tokens({ ...options, signal: controller.signal })) {
+          if (event.type === "token_delta") listener(event.delta, event);
+          else options.onReset?.(event.agent_id);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+      }
+    })();
+    return { stop: () => controller.abort(), done };
   }
 
   /**
@@ -206,6 +254,14 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
     events: (runId: string, options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunEvent> =>
       this.followEvents(runId, options),
 
+    /** Journal events plus the live draft of answers being written (`token_delta`, `token_reset`). */
+    stream: (runId: string, options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunStreamEvent> =>
+      this.followStream(runId, options),
+
+    /** Only the live drafts. `agentId` keeps one agent's. */
+    tokens: (runId: string, options?: RequestOptions & { agentId?: string }): AsyncGenerator<TokenEvent> =>
+      this.followTokens(runId, options),
+
     control: (
       runId: string,
       action: "pause" | "resume" | "abort" | "steer",
@@ -255,19 +311,44 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
     return (await response.json()) as T;
   }
 
-  private async *followEvents(
+  private async eventsResponse(
     runId: string,
-    options?: RequestOptions & { fromSeq?: number; follow?: boolean },
-  ): AsyncGenerator<RunEvent> {
+    options: (RequestOptions & { fromSeq?: number; follow?: boolean }) | undefined,
+    drafts: boolean,
+  ): Promise<Response> {
     const path = `/api/runs/${encodeURIComponent(runId)}/events`;
     const response = await this.transport.request("GET", path, {
       accept: "text/event-stream",
-      query: { from_seq: options?.fromSeq, follow: options?.follow },
+      query: { from_seq: options?.fromSeq, follow: options?.follow, drafts: drafts || undefined },
       token: options?.token,
       signal: options?.signal,
     });
     if (!response.ok) throw new TuvlApiError(response.status, await detail(response), path);
-    yield* parseSseStream(response, options?.signal);
+    return response;
+  }
+
+  private async *followEvents(
+    runId: string,
+    options?: RequestOptions & { fromSeq?: number; follow?: boolean },
+  ): AsyncGenerator<RunEvent> {
+    yield* parseSseStream(await this.eventsResponse(runId, options, false), options?.signal);
+  }
+
+  private async *followStream(
+    runId: string,
+    options?: RequestOptions & { fromSeq?: number; follow?: boolean },
+  ): AsyncGenerator<RunStreamEvent> {
+    yield* parseSseEvents(await this.eventsResponse(runId, options, true), options?.signal);
+  }
+
+  private async *followTokens(
+    runId: string,
+    options?: RequestOptions & { agentId?: string },
+  ): AsyncGenerator<TokenEvent> {
+    const response = await this.eventsResponse(runId, { ...options, fromSeq: undefined }, true);
+    for await (const event of parseSseEvents(response, options?.signal)) {
+      if (isTokenEvent(event) && (!options?.agentId || event.agent_id === options.agentId)) yield event;
+    }
   }
 
 }

@@ -30,6 +30,9 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 | `runs.list({ workflow?, status?, limit? })` / `runs.get(id)` / `runs.events(id, { fromSeq?, follow? })` / `runs.control(id, action, message?)` / `runs.export(id)` | run API |
 | `approvals.list()` / `approvals.decide(id, { values? , decision?, edited_args?, message? })` | approvals the caller may decide |
 | `crud<TRead, TCreate, TUpdate>(model)` | CRUD on models with `spec.api.crud` |
+| `RunHandle.onToken(listener, { onReset?, agentId? })` / `tokens()` / `stream()` (and `runs.tokens` / `runs.stream`) | live draft of an `llm` answer with `stream_tokens: true`; `events()` never carries drafts |
+| `runs.webhooks(runId)` / `redeliverWebhook` | a run's webhook notifications; send one again |
+| `verifyWebhook(rawBody, signatureHeader, secrets)` / `webhookHandler({ secrets, onNotification })` / `WebhookError` | receive and verify `spec.webhooks` notifications |
 | `RunHandle.get / events / wait({ intervalMs?, timeoutMs?, untilWaiting? }) / pause / resume / abort / steer(message)` | per run |
 | `TuvlAuth` | `/auth/*`: `loginWithPassword`, `bootstrap`, `getOAuthLoginUrl`, `refresh`, `getMe`, `logout` |
 
@@ -59,3 +62,6 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 3. Use `approvals.decide` to answer a person; there is no "resume instance" call.
 4. Use `events()` for progress; do not poll `runs.get` in a tight loop (use `wait({ intervalMs })`).
 5. Pass `signal` to cancel long `events()` streams.
+6. For a workflow whose trigger has `http.upload`, pass a `File` or `Blob` as the `file` input: the client sends `multipart/form-data`. Never base64 a file into JSON and never forge a file reference.
+7. Verify a webhook against the raw body (`verifyWebhook` / `webhookHandler`) and de-duplicate on the notification id; pull the run yourself, the notification carries no output.
+8. To show an answer while it is written, use `onToken` (`token_delta` / `token_reset`), clear the draft on reset, and still take the result from `wait()`: drafts are not journaled and are not kept.

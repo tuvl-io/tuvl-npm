@@ -101,6 +101,74 @@ const output = await handle.wait();
 ```
 
 ---
+name: upload-file
+description: Start a workflow whose trigger accepts file uploads (`http.upload`), from a browser or Node.
+options:
+  argument-hint: "[workflow-name]"
+---
+
+### Body
+
+1. The workflow's `trigger.input` has a `file` (or `list[file]`) input and its HTTP trigger declares `upload`.
+2. Pass a `File` or `Blob` as that input's value (an array of them for `list[file]`). The client sends `multipart/form-data`; other values go
+   as text or JSON text. Do not base64 a file into a JSON field, and never build the file reference yourself: the server makes it.
+3. Handle the result as for any run (`RunHandle` or the end's body). A refused file answers `TuvlApiError`: 413 too large, 415 type not
+   accepted, 400 too many files, 422 a value that is not a file for a file input.
+
+```ts
+const result = await client.execute("intake", { invoice: fileInput.files[0], note: "March" });
+```
+
+---
+name: receive-webhook
+description: Be told when a run completes, fails or waits, instead of polling (`spec.webhooks`).
+options:
+  argument-hint: "[run-id]"
+---
+
+### Body
+
+1. A notification holds only the run id, what happened and a journal position. Pull the run with your own token (scope `runs:read`).
+2. Verify the signature on the **raw** body before trusting it. `webhookHandler` does this for anything that speaks `Request`/`Response`;
+   for Express use `verifyWebhook(rawBody, req.header("tuvl-signature"), secrets)`, which throws `WebhookError` (answer 401).
+3. Delivery is at-least-once: ignore a notification id you have seen. Pass the old secret too while rotating.
+
+```ts
+import { TuvlClient, webhookHandler } from "@tuvl/client";
+
+const client = new TuvlClient({ baseUrl: "https://tuvl.example.com", token: serviceToken });
+
+export const POST = webhookHandler({
+  secrets: [process.env.OPS_WEBHOOK_SECRET!],
+  onNotification: async (n) => {
+    if (await alreadySeen(n.id)) return;
+    const run = await client.run(n.run_id).get();
+    await handle(run);
+  },
+});
+```
+
+---
+name: stream-answer
+description: Show an llm agent's answer while the model is writing it (`stream_tokens: true`).
+options:
+  argument-hint: "[run-id]"
+---
+
+### Body
+
+1. The agent must be declared with `llm: { stream_tokens: true }` (and `stream_field` when it has several `str` outputs). Without that, no pieces are sent.
+2. Call `handle.onToken(listener, { onReset })` right after `start()` or `execute()` returns a `RunHandle`. Append each piece; on reset, clear what you showed.
+3. Still await `handle.wait()` for the final result: the pieces are a preview, the output is the answer. Await `live.done` to know the stream ended.
+
+```ts
+const handle = await client.start("write_reply", { ticket });
+const live = handle.onToken((piece) => (box.textContent += piece), { onReset: () => (box.textContent = "") });
+const reply = await handle.wait();
+await live.done;
+```
+
+---
 name: follow-run
 description: Stream a run's events (agents, decisions, tool calls) as they happen.
 options:
