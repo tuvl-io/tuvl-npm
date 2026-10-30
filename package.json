@@ -1,6 +1,6 @@
 {
   "name": "@tuvl/client",
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0",
   "description": "TypeScript client for tuvl 2.0: start workflow runs, follow their journal over SSE, decide approvals, and generate typed workflow contracts from OpenAPI.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -30,7 +30,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "author": "Sooraj <sooraj@tuvl.io>",
+  "author": "tuvl.io <developer@tuvl.io>",
   "homepage": "https://tuvl.io",
   "repository": {
     "type": "git",
