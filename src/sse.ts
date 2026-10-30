@@ -42,6 +42,9 @@ async function* frames(response: Response, signal?: AbortSignal): AsyncGenerator
     }
   };
 
+  // an abort must not wait for the next chunk: cancelling the reader ends the pending read
+  const onAbort = () => void reader.cancel().catch(() => {});
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
     while (!signal?.aborted) {
       const { done, value } = await reader.read();
@@ -63,6 +66,9 @@ async function* frames(response: Response, signal?: AbortSignal): AsyncGenerator
     const last = flush();
     if (last) yield last;
   } finally {
+    signal?.removeEventListener("abort", onAbort);
+    // leaving early (a `break`, a throw) must close the connection, not just let go of it
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }

@@ -83,7 +83,9 @@ export class RunHandle<TOutput = unknown> {
     options: RequestOptions & { agentId?: string; onReset?: (agentId: string) => void } = {},
   ): { stop: () => void; done: Promise<void> } {
     const controller = new AbortController();
-    options.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    const onAbort = () => controller.abort();
+    if (options.signal?.aborted) controller.abort();
+    else options.signal?.addEventListener("abort", onAbort, { once: true });
     const done = (async () => {
       try {
         for await (const event of this.tokens({ ...options, signal: controller.signal })) {
@@ -92,6 +94,8 @@ export class RunHandle<TOutput = unknown> {
         }
       } catch (error) {
         if (!controller.signal.aborted) throw error;
+      } finally {
+        options.signal?.removeEventListener("abort", onAbort);
       }
     })();
     return { stop: () => controller.abort(), done };
@@ -115,7 +119,7 @@ export class RunHandle<TOutput = unknown> {
       if (Date.now() + interval > deadline) {
         throw new Error(`tuvl run ${this.id} is still ${run.status} after ${options?.timeoutMs}ms`);
       }
-      await new Promise((resolve) => setTimeout(resolve, interval));
+      await sleep(interval, options?.signal);
     }
   }
 
@@ -135,6 +139,22 @@ export class RunHandle<TOutput = unknown> {
   steer(message: string, options?: RequestOptions): Promise<Run> {
     return this.client.runs.control(this.id, "steer", message, options);
   }
+}
+
+/** Wait `ms`, or reject as soon as `signal` aborts. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function outputOf<T>(run: Run): T {
