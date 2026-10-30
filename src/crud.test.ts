@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TuvlClient } from "./client";
 import { CrudClient } from "./crud";
 import { Transport } from "./transport";
+import { TuvlApiError } from "./types";
 
 const mockFetch = vi.fn<typeof fetch>();
 
@@ -129,7 +130,10 @@ describe("CrudClient", () => {
 
     it("throws on 404", async () => {
       mockFetch.mockResolvedValueOnce(new Response("Not Found", { status: 404 }));
-      await expect(makeCrud().get("missing")).rejects.toThrow("HTTP 404");
+      const error = await makeCrud().get("missing").catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(TuvlApiError);
+      expect(error).toMatchObject({ status: 404, detail: "Not Found" });
+      expect((error as Error).message).toContain("HTTP 404");
     });
   });
 
