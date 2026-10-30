@@ -12,6 +12,10 @@ describe("errors", () => {
     expect(run.runId).toBe("r1");
   });
 
+  it("a run error without a run id says so", () => {
+    expect(new TuvlRunError(500, null, null).message).toContain("run ?");
+  });
+
   it("statuses are disjoint", () => {
     expect(TERMINAL_STATUSES.filter((s) => WAITING_STATUSES.includes(s))).toEqual([]);
   });

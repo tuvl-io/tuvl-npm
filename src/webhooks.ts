@@ -133,7 +133,10 @@ export async function verifyWebhook(
     throw new WebhookError("stale");
   }
 
-  const signed = new Uint8Array([...encoder.encode(`${parsed.timestamp}.`), ...body]);
+  const prefix = encoder.encode(`${parsed.timestamp}.`);
+  const signed = new Uint8Array(prefix.length + body.length);
+  signed.set(prefix);
+  signed.set(body, prefix.length);
   let genuine = false;
   for (const secret of accepted) {
     const key = await crypto.subtle.importKey(
