@@ -23,6 +23,9 @@
     "LICENSE",
     "NOTICE"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

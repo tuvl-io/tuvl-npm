@@ -364,6 +364,8 @@ pnpm typecheck && pnpm test && pnpm build
 TUVL_LIVE_URL=http://localhost:8885 TUVL_LIVE_TOKEN=... pnpm test src/live.test.ts
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
 ## License
 
 Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Versions before `2.0.0-beta.2` keep the terms they were published with.
