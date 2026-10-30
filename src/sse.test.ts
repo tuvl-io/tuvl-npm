@@ -1,164 +1,86 @@
-/**
- * Tests for parseSseStream — SSE wire-format parser.
- */
-import { describe, it, expect } from "vitest";
-import { parseSseStream } from "./sse";
+import { describe, expect, it } from "vitest";
+import { parseSseEvents, parseSseStream } from "./sse";
+import type { RunEvent } from "./types";
 
-// Helper: build a Response whose body streams the given raw SSE text.
-function makeResponse(raw: string): Response {
+function stream(...chunks: string[]): Response {
   const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(encoder.encode(raw));
-      controller.close();
-    },
-  });
-  return new Response(stream, { status: 200 });
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    }),
+  );
 }
 
-async function collect(raw: string, signal?: AbortSignal) {
-  const frames: unknown[] = [];
-  for await (const frame of parseSseStream(makeResponse(raw), signal)) {
-    frames.push(frame);
-  }
-  return frames;
+const event = (seq: number, type: string): RunEvent => ({
+  run_id: "r1",
+  seq,
+  ts: "2026-10-09T00:00:00Z",
+  type,
+  agent_id: seq === 2 ? "classify" : null,
+  engine: seq === 2 ? "llm" : null,
+  tokens: null,
+  latency_ms: null,
+  payload: {},
+});
+
+const frame = (e: RunEvent) => `id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`;
+
+async function collect(response: Response): Promise<RunEvent[]> {
+  const out: RunEvent[] = [];
+  for await (const e of parseSseStream(response)) out.push(e);
+  return out;
 }
+
+const delta = (agent: string, text: string, replay = false) =>
+  `event: token_delta\ndata: ${JSON.stringify({ run_id: "r1", agent_id: agent, delta: text, replay })}\n\n`;
+const reset = (agent: string) => `event: token_reset\ndata: ${JSON.stringify({ run_id: "r1", agent_id: agent })}\n\n`;
+
+describe("live drafts", () => {
+  const text = frame(event(1, "run_started")) + delta("classify", "Hel") + delta("classify", "lo") + reset("classify") + frame(event(2, "agent_started"));
+
+  it("parseSseStream still yields only journal events", async () => {
+    const events = await collect(stream(text));
+    expect(events.map((e) => [e.seq, e.type])).toEqual([
+      [1, "run_started"],
+      [2, "agent_started"],
+    ]);
+  });
+
+  it("parseSseEvents yields drafts in order, typed by the frame's event name", async () => {
+    const out = [];
+    for await (const e of parseSseEvents(stream(text.slice(0, 77), text.slice(77)))) out.push(e);
+    expect(out.map((e) => e.type)).toEqual(["run_started", "token_delta", "token_delta", "token_reset", "agent_started"]);
+    expect(out[1]).toMatchObject({ agent_id: "classify", delta: "Hel", replay: false });
+    expect(out[3]).toEqual({ type: "token_reset", run_id: "r1", agent_id: "classify" });
+  });
+
+  it("a frame with no event name is a journal event", async () => {
+    const out = [];
+    for await (const e of parseSseEvents(stream(`data: ${JSON.stringify(event(5, "run_completed"))}\n\n`))) out.push(e);
+    expect(out.map((e) => e.type)).toEqual(["run_completed"]);
+  });
+});
 
 describe("parseSseStream", () => {
-  it("parses a single step frame", async () => {
-    const raw = [
-      "event: step",
-      'data: {"step_id":"s1","kind":"llm","signal":"ok","snapshot":{},"duration_ms":10}',
-      "",
-      "",
-    ].join("\n");
-
-    const frames = await collect(raw);
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toMatchObject({
-      event_type: "step",
-      step_id: "s1",
-      kind: "llm",
-    });
+  it("yields run events across chunk boundaries and skips keep-alives", async () => {
+    const text = frame(event(1, "run_started")) + ": keep-alive\n\n" + frame(event(2, "agent_started"));
+    const events = await collect(stream(text.slice(0, 30), text.slice(30, 95), text.slice(95)));
+    expect(events.map((e) => [e.seq, e.type, e.agent_id])).toEqual([
+      [1, "run_started", null],
+      [2, "agent_started", "classify"],
+    ]);
   });
 
-  it("parses a done frame and stops iteration", async () => {
-    const raw = [
-      "event: step",
-      'data: {"step_id":"s1","kind":"llm","signal":"ok","snapshot":{},"duration_ms":5}',
-      "",
-      "event: done",
-      'data: {"success":true,"data":{"result":42},"error":null}',
-      "",
-      // Any frames after 'done' should NOT be yielded
-      "event: step",
-      'data: {"step_id":"s2","kind":"llm","signal":"ok","snapshot":{},"duration_ms":1}',
-      "",
-      "",
-    ].join("\n");
-
-    const frames = await collect(raw);
-    expect(frames).toHaveLength(2);
-    expect(frames[1]).toMatchObject({ event_type: "done", success: true });
+  it("handles CRLF, a final frame without a blank line, and bad JSON", async () => {
+    const crlf = frame(event(1, "run_started")).replace(/\n/g, "\r\n");
+    const events = await collect(stream(crlf, "data: not json\n\n", `data: ${JSON.stringify(event(3, "run_completed"))}`));
+    expect(events.map((e) => e.type)).toEqual(["run_started", "run_completed"]);
   });
 
-  it("parses an error frame and stops iteration", async () => {
-    const raw = [
-      "event: error",
-      'data: {"message":"engine crashed","details":"OOM"}',
-      "",
-      "",
-    ].join("\n");
-
-    const frames = await collect(raw);
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toMatchObject({ event_type: "error", message: "engine crashed" });
-  });
-
-  it("parses a suspended frame and stops iteration", async () => {
-    const raw = [
-      "event: suspended",
-      'data: {"instance_id":"inst-1","paused_step_id":"review"}',
-      "",
-      "",
-    ].join("\n");
-
-    const frames = await collect(raw);
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toMatchObject({ event_type: "suspended", instance_id: "inst-1" });
-  });
-
-  it("injects event_type from the event: line (not from data)", async () => {
-    const raw = [
-      "event: step",
-      'data: {"step_id":"x","kind":"tool","signal":"ok","snapshot":{},"duration_ms":2}',
-      "",
-      "",
-    ].join("\n");
-
-    const frames = await collect(raw);
-    // data body has no event_type — it must be injected by the parser
-    expect((frames[0] as Record<string, unknown>).event_type).toBe("step");
-  });
-
-  it("falls back to 'message' event type when no event: line present", async () => {
-    const raw = ['data: {"foo":"bar"}', "", ""].join("\n");
-    const frames = await collect(raw);
-    expect(frames).toHaveLength(1);
-    expect((frames[0] as Record<string, unknown>).event_type).toBe("message");
-  });
-
-  it("skips non-JSON data frames silently", async () => {
-    const raw = [
-      "data: not-json",
-      "",
-      "event: done",
-      'data: {"success":true,"data":null,"error":null}',
-      "",
-      "",
-    ].join("\n");
-
-    const frames = await collect(raw);
-    // non-JSON frame is skipped; done frame is returned
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toMatchObject({ event_type: "done" });
-  });
-
-  it("handles CRLF line endings", async () => {
-    const raw =
-      "event: step\r\ndata: {\"step_id\":\"s1\",\"kind\":\"llm\",\"signal\":\"ok\",\"snapshot\":{},\"duration_ms\":1}\r\n\r\n";
-    const frames = await collect(raw);
-    expect(frames).toHaveLength(1);
-    expect((frames[0] as Record<string, unknown>).event_type).toBe("step");
-  });
-
-  it("throws when response has no body", async () => {
-    const response = new Response(null, { status: 200 });
-    await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for await (const _ of parseSseStream(response)) { /* drain */ }
-    }).rejects.toThrow("SSE response has no body");
-  });
-
-  it("stops early when AbortSignal is aborted", async () => {
-    // Build a stream that would produce two done-worthy frames, but abort after first
-    const raw = [
-      "event: step",
-      'data: {"step_id":"s1","kind":"llm","signal":"ok","snapshot":{},"duration_ms":1}',
-      "",
-      "event: step",
-      'data: {"step_id":"s2","kind":"llm","signal":"ok","snapshot":{},"duration_ms":1}',
-      "",
-      "",
-    ].join("\n");
-
-    const controller = new AbortController();
-    const frames: unknown[] = [];
-    for await (const frame of parseSseStream(makeResponse(raw), controller.signal)) {
-      frames.push(frame);
-      controller.abort(); // abort after the first frame
-    }
-    // May yield 1 or 2 depending on buffer state — just verify it doesn't hang
-    expect(frames.length).toBeGreaterThanOrEqual(1);
+  it("rejects a response without a body", async () => {
+    await expect(collect(new Response(null))).rejects.toThrow("no body");
   });
 });

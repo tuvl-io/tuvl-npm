@@ -1,8 +1,5 @@
 /**
- * Shared types for @tuvl/client.
- *
- * Mirrors the Python-side StepEvent dataclass, the SSE envelope produced by
- * tuvl.core.engine.streaming, and the system_router manifest shapes.
+ * Shared types for @tuvl/client 2.0 (REST + SSE, spec §15).
  */
 
 /** Returned by all /auth/* login and refresh endpoints. */
@@ -16,174 +13,212 @@ export interface TokenResponse {
  * Returned by GET /auth/me.
  */
 export interface MeResponse {
-  /** User UUID extracted from the `user()` Datalog fact in the token. */
+  /** User id (the token's `sub` claim). */
   user_id: string;
-  /** Role names from all `group()` facts — e.g. ["hr_manager", "member"]. */
+  /** Role names (the `groups` claim) — e.g. ["hr_manager", "member"]. */
   groups: string[];
-  /** Permission scopes from all `scope()` facts — e.g. ["candidate:read"]. */
+  /** Permission scopes (the `scopes` claim) — e.g. ["candidate:read"]. */
   scopes: string[];
 }
 
-/** A single execution event streamed by the tuvl server (SSE or gRPC). */
-export interface StepEvent {
-  event_type: "step";
-  step_id: string;
-  kind: string;
-  signal: string;
-  snapshot: Record<string, unknown>;
-  duration_ms: number;
-  error_detail?: string | null;
+
+// ── Runs (spec §15.1) ─────────────────────────────────────────────────────────
+
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "waiting_human"
+  | "waiting_approval"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "aborted"
+  | "compensated";
+
+export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "aborted", "compensated"];
+export const WAITING_STATUSES: readonly RunStatus[] = ["waiting_human", "waiting_approval", "paused"];
+
+/** A pending human form or tool-call approval (`GET /api/approvals`). */
+/** One webhook notification of a run (`client.runs.webhooks`). */
+export interface WebhookDelivery {
+  id: string;
+  webhook: string;
+  type: string;
+  seq: number;
+  agent: string | null;
+  status: "pending" | "delivered" | "dead";
+  attempts: number;
+  last_status: number | null;
+  last_error: string | null;
+  created_at: string;
+  delivered_at: string | null;
 }
 
-/**
- * Live loop-progress emitted by an autonomous-mode `Agent` step.
- *
- * The engine streams these mid-step as ordinary {@link StepEvent}s with
- * `kind: "Agent"`, `signal: "running"`, and the payload under
- * `snapshot.agent_progress`. They carry loop metadata only (no context values).
- * The terminating frame for the step is a normal StepEvent whose `signal` is the
- * agent's outcome (or a reserved exit: `max_iterations` | `budget_exceeded` |
- * `error` | `aborted` | `guardrail_violation`). Use {@link agentProgress} to
- * read this off a streamed event.
- */
-export interface AgentProgress {
-  /** Which loop event this frame reports. */
-  type: "iteration" | "tool_call" | "outcome";
-  /** 1-based loop iteration index. */
-  iteration: number;
-  /** `iteration` frames: number of tool calls the model requested this turn. */
-  tool_calls?: number;
-  /** `iteration` frames: cumulative tokens consumed so far. */
-  tokens_used?: number;
-  /** `tool_call` frames: the tool (component ref) that was invoked. */
+export interface Approval {
+  approval_id: string;
+  run_id: string;
+  agent_id: string;
+  kind: "human" | "tool" | "pause";
+  status: string;
+  required_group: string | null;
+  expires_at: string | null;
+  created_at: string | null;
+  decide_url: string;
+  title?: string;
+  instruction?: string | null;
+  show?: Record<string, unknown>;
+  form?: Record<string, { type: string; required: boolean; label?: string; widget?: string; help?: string }>;
   tool?: string;
-  /** `tool_call` / `outcome` frames: the signal produced. */
-  signal?: string;
-}
-
-/**
- * Read the {@link AgentProgress} payload from a streamed event, or `null` when
- * the event is not an agent progress frame. Works for both the SSE
- * `StepEvent` and the gRPC `GrpcStepEvent` (structural).
- */
-export function agentProgress(event: {
-  kind: string;
-  signal: string;
-  snapshot?: Record<string, unknown>;
-}): AgentProgress | null {
-  if (event.kind !== "Agent" || event.signal !== "running") return null;
-  const p = event.snapshot?.agent_progress;
-  return p && typeof p === "object" ? (p as AgentProgress) : null;
-}
-
-/**
- * Terminal event emitted when the workflow finishes (success OR business failure).
- * Wire shape from tuvl.core.api.manager._sse_generator:
- *   {success: true,  data: <output>,  error: null}
- *   {success: false, data: <partial>, error: {...workflow error...}}
- */
-export interface DoneEvent {
-  event_type: "done";
-  success: boolean;
-  data: unknown;
-  error: WorkflowErrorPayload | null;
-}
-
-/** Terminal event emitted when the workflow engine itself raised an exception. */
-export interface ErrorEvent {
-  event_type: "error";
-  message: string;
-  details?: string | null;
-}
-
-/** Terminal event emitted when a workflow hits a Human-in-the-Loop step. */
-export interface SuspendedEvent {
-  event_type: "suspended";
-  instance_id?: string;
-  paused_step_id?: string;
-  ui?: unknown;
-  schema?: unknown;
-  context_data?: Record<string, unknown>;
-  output_key?: string;
+  args?: Record<string, unknown>;
+  reason?: string;
   [key: string]: unknown;
 }
 
-/** Shape of the `error` field on a non-success DoneEvent / REST envelope. */
-export interface WorkflowErrorPayload {
-  code?: string;
+/** `GET /api/runs/{id}` and the `202` body of a trigger. */
+export interface Run {
+  run_id: string;
+  workflow: string;
+  status: RunStatus;
+  trigger: string;
+  current_agent: string | null;
+  end: string | null;
+  output: { status: number; body: unknown } | null;
+  error: string | Record<string, unknown> | null;
+  tokens_used: number;
+  created_at: string | null;
+  updated_at: string | null;
+  status_url: string;
+  events_url: string;
+  approval?: Approval;
+}
+
+/** Journal event types (spec Appendix C.3). */
+export type RunEventType =
+  | "run_queued"
+  | "run_started"
+  | "agent_started"
+  | "agent_completed"
+  | "signal"
+  | "llm_turn"
+  | "tool_call"
+  | "tool_result"
+  | "decision"
+  | "judge_verdict"
+  | "approval_requested"
+  | "approval_decided"
+  | "paused"
+  | "resumed"
+  | "checkpoint"
+  | "compensation_started"
+  | "compensation_completed"
+  | "run_completed"
+  | "run_failed"
+  | "run_aborted";
+
+/** One SSE event of `GET /api/runs/{id}/events` (spec §15.2). */
+export interface RunEvent {
+  run_id: string;
+  seq: number;
+  ts: string | null;
+  /** A {@link RunEventType}; kept open so newer servers don't break older clients. */
+  type: RunEventType | (string & {});
+  agent_id: string | null;
+  engine: string | null;
+  tokens: number | null;
+  latency_ms: number | null;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * A piece of an agent's answer while the model is still writing it (`token_delta`). Not a journal event:
+ * it has no `seq`. `replay` is true for the draft so far, sent once to a client that joined mid-agent.
+ */
+export interface TokenDelta {
+  type: "token_delta";
+  run_id: string;
+  agent_id: string;
+  delta: string;
+  replay: boolean;
+}
+
+/** The agent is starting its answer again (a retry, or a failure): discard the draft (`token_reset`). */
+export interface TokenReset {
+  type: "token_reset";
+  run_id: string;
+  agent_id: string;
+}
+
+export type TokenEvent = TokenDelta | TokenReset;
+
+/** Whether a streamed item is a live draft rather than a journal event. */
+export function isTokenEvent(event: { type: string }): event is TokenEvent {
+  return event.type === "token_delta" || event.type === "token_reset";
+}
+
+/** What `stream()` yields: journal events and live drafts, told apart by `type`. */
+export type RunStreamEvent = RunEvent | TokenEvent;
+
+/** The body of `POST /api/approvals/{id}`. */
+export interface ApprovalDecision {
+  /** Tool approvals: approve, reject, or approve with edited arguments. */
+  decision?: "approve" | "reject" | "edit";
+  /** Human forms: the submitted field values. */
+  values?: Record<string, unknown>;
+  edited_args?: Record<string, unknown>;
   message?: string;
-  details?: unknown;
-  [key: string]: unknown;
 }
 
-/**
- * Shape of the plain REST response body returned by
- * `POST <workflow_trigger_path>` (and the versioned variant).
- *
- * `execute()` unwraps this and returns just `data` on success, throwing
- * `TuvlWorkflowError` on `success === false`.
- */
-export interface RestEnvelope<TData = unknown> {
-  success: boolean;
-  status_code: number;
-  data: TData | null;
-  error: WorkflowErrorPayload | null;
-}
-
-/** Manifest for a single workflow (from GET /api/_system/workflows/{name}). */
-export interface WorkflowManifest {
-  name: string;
-  trigger_path: string;
-  trigger_method: string;
-  has_slow_steps: boolean;
-  slow_kinds_present: string[];
-  steps: Array<{ id: string; kind: string }>;
-  /** Declared trigger.public — true when the workflow trigger accepts anonymous calls. */
-  public?: boolean;
-}
-
-/** Map of workflow manifests (from GET /api/_system/workflows). */
-export type WorkflowManifestMap = Record<string, Omit<WorkflowManifest, "name" | "steps">>;
-
-/** Options passed to TuvlClient.execute(). */
-export interface ExecuteOptions<_TOutput = unknown> {
-  payload?: Record<string, unknown>;
-  onProgress?: (event: StepEvent) => void;
-  onSuspended?: (event: SuspendedEvent) => void;
-  mode?: "sse" | "grpc" | "rest";
+export interface RequestOptions {
+  /** Overrides the client's token for this call. */
   token?: string;
   signal?: AbortSignal;
 }
 
-/** Options passed to TuvlClient.executeVersioned(). */
-export interface ExecuteVersionedOptions<_TOutput = unknown> extends ExecuteOptions<_TOutput> {
-  /** The workflow's schema_version, e.g. "v2". Calls /{version}/run/{name}. */
-  version: string;
+// ── Typed workflows (`npx tuvl-client generate`) ─────────────────────────────
+
+/** One workflow's contract: its input and the bodies of its ends by status. */
+export interface WorkflowContract {
+  input: Record<string, unknown>;
+  /** The body of the default end. */
+  output: unknown;
 }
 
-/** Body sent to POST /api/workflows/resume. */
-export interface ResumeRequest {
-  instance_id: string;
-  human_input?: Record<string, unknown>;
-}
+/** Workflow name → contract. Generated from `/openapi.json`; untyped by default. */
+export type WorkflowTypes = Record<string, WorkflowContract>;
 
-/** Options passed to TuvlClient.resumeWorkflow(). */
-export interface ResumeOptions<_TOutput = unknown> {
-  instanceId: string;
-  humanInput?: Record<string, unknown>;
-  onProgress?: (event: StepEvent) => void;
-  onSuspended?: (event: SuspendedEvent) => void;
-  mode?: "sse" | "rest";
-  token?: string;
-  signal?: AbortSignal;
-}
-
-/** Options passed to TuvlClient constructor. */
 export interface TuvlClientOptions {
+  /** Base URL of the tuvl server, e.g. `http://localhost:8885`. */
   baseUrl: string;
+  /** Access token (JWT) sent with every request (see `setToken`). */
   token?: string;
-  manifestCacheTtl?: number;
 }
+
+// ── Errors ────────────────────────────────────────────────────────────────────
+
+/** A request the server refused (auth, unknown workflow or run, bad input). */
+export class TuvlApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: unknown,
+    readonly path: string,
+  ) {
+    super(`tuvl ${path} → HTTP ${status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
+    this.name = "TuvlApiError";
+  }
+}
+
+/** A run that ended at an error end (status ≥ 400), failed, or was aborted. */
+export class TuvlRunError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+    readonly runId: string | null,
+  ) {
+    super(`tuvl run ${runId ?? "?"} ended with HTTP ${status}: ${JSON.stringify(body)}`);
+    this.name = "TuvlRunError";
+  }
+}
+
 
 // ── CRUD types ────────────────────────────────────────────────────────────────
 
@@ -216,32 +251,4 @@ export interface CrudGetOptions {
 export interface CrudMutateOptions {
   token?: string;
   signal?: AbortSignal;
-}
-
-// ── Errors ────────────────────────────────────────────────────────────────────
-
-/**
- * Thrown by `execute()` when a workflow finishes with `success: false`.
- */
-export class TuvlWorkflowError extends Error {
-  readonly data: unknown;
-  readonly error: WorkflowErrorPayload | null;
-  constructor(message: string, data: unknown, error: WorkflowErrorPayload | null) {
-    super(message);
-    this.name = "TuvlWorkflowError";
-    this.data = data;
-    this.error = error;
-  }
-}
-
-/**
- * Thrown by `execute()` when a workflow suspends at a Human-in-the-Loop step.
- */
-export class TuvlWorkflowSuspendedError extends Error {
-  readonly suspended: SuspendedEvent;
-  constructor(suspended: SuspendedEvent) {
-    super(`tuvl workflow suspended at step '${suspended.paused_step_id ?? "?"}'`);
-    this.name = "TuvlWorkflowSuspendedError";
-    this.suspended = suspended;
-  }
 }

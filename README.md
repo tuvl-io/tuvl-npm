@@ -1,12 +1,12 @@
 # @tuvl/client
 
-> **Stable.** `@tuvl/client` 1.0.0 targets engine `tuvl >= 1.0.0`. The API is
-> stable and versioned under [SemVer](https://semver.org): breaking changes bump
-> the major version.
+> `@tuvl/client` 2.x targets engine `tuvl >= 2.0`: REST + Server-Sent Events
+> only. Breaking changes bump the major version ([SemVer](https://semver.org)).
 
-TypeScript client SDK for the [tuvl](https://tuvl.io) workflow orchestration engine.
-
-Supports three transports — plain REST, Server-Sent Events, and gRPC-Web — with automatic transport selection based on the workflow's streaming hints. Also ships first-class support for Human-in-the-Loop (HITL) resumption, explicit version pinning, and typed CRUD access to tuvl model endpoints.
+TypeScript client for the [tuvl](https://tuvl.io) workflow engine: start workflow
+runs, follow their journal over SSE, operate them, decide approvals, and use
+typed CRUD on models. `npx tuvl-client generate` turns the server's
+`/openapi.json` into typed workflow inputs and outputs.
 
 ---
 
@@ -16,65 +16,176 @@ Supports three transports — plain REST, Server-Sent Events, and gRPC-Web — w
 npm install @tuvl/client
 # or
 pnpm add @tuvl/client
-# or
-yarn add @tuvl/client
 ```
 
-**gRPC-Web** is optional. Install the peer dependencies only if you need `mode: "grpc"`:
-
-```bash
-npm install @protobuf-ts/grpcweb-transport @protobuf-ts/runtime-rpc
-```
+It talks to a tuvl `2.0` server (`uv tool install tuvl`); file uploads and webhook verification need 2.0.
 
 ---
 
 ## Quick start
 
 ```ts
-import { TuvlAuth, TuvlClient } from "@tuvl/client";
+import { RunHandle, TuvlClient } from "@tuvl/client";
+import type { Workflows } from "./tuvl.generated"; // npx tuvl-client generate
 
-// 1. Login
-const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
-const { access_token } = await auth.loginWithPassword("me@example.com", "secret");
+const client = new TuvlClient<Workflows>({ baseUrl: "http://localhost:8885", token });
 
-// 2. Who am I? (roles + scopes without touching Biscuit internals)
-const me = await auth.getMe(access_token);
-console.log(me.groups);  // ["hr_manager"]
-console.log(me.scopes);  // ["candidate:read", "requisition:write"]
-
-// 3. Run a workflow
-// Note: current engines require a token on every call unless the workflow
-// declares trigger.public: true (see manifest.public in AGENTIC_MANUAL.md §6).
-const client = new TuvlClient({ baseUrl: "http://localhost:8885", token: access_token });
-
-// Plain REST call
-const result = await client.execute("hello", {
-  payload: { message: "world" },
+const result = await client.execute("triage_ticket", {
+  subject: "Refund",
+  body: "I was charged twice",
+  customer_email: "a@example.com",
 });
 
-// SSE streaming — auto-detected when onProgress is provided
-// and the workflow has slow steps (agent / mcp / api_call)
-const result2 = await client.execute("screen-candidate", {
-  payload: { candidate_id: 42 },
-  onProgress: (ev) => console.log(`[${ev.step_id}] ${ev.duration_ms}ms`),
-});
+if (result instanceof RunHandle) {
+  // the run waits on a person or outlived the trigger's sync_timeout
+  for await (const event of result.events()) console.log(event.seq, event.type, event.agent_id);
+  console.log(await result.wait());
+} else {
+  console.log(result.category, result.urgency); // typed from the default end
+}
+```
 
-// Observe an autonomous Agent loop live
-import { agentProgress } from "@tuvl/client";
-await client.execute("triage-ticket", {
-  payload: { ticket_id: 7 },
-  onProgress: (ev) => {
-    const p = agentProgress(ev); // typed loop frame, or null for ordinary steps
-    if (p) console.log(`${p.type} #${p.iteration}${p.tool ? ` → ${p.tool}` : ""}`);
+---
+
+## Typed workflows
+
+```bash
+npx tuvl-client generate --url http://localhost:8885 --out src/tuvl.generated.ts
+# or from a saved document
+npx tuvl-client generate --file openapi.json
+```
+
+Every trigger route in `/openapi.json` carries `x-tuvl-workflow`. The generator
+emits one `Workflows` type: per workflow its `input` (path, query and body
+fields of `trigger.input`), its `output` (the default end's body) and `ends`
+(every end's body by HTTP status). Without it, `TuvlClient` accepts any
+workflow name with untyped input and output.
+
+---
+
+## Runs
+
+### `client.execute(workflow, input, options?)`
+
+`POST /api/workflows/{name}/runs` and wait up to the trigger's `sync_timeout`.
+
+| Server answer | `execute()` |
+|---|---|
+| 2xx end | resolves the end's body |
+| `202` (still running, or waiting on a person/approval) | resolves a `RunHandle` |
+| end with status ≥ 400, failure, abort | rejects `TuvlRunError { status, body, runId }` |
+| refused (401/403/404, input not matching `trigger.input` → 422) | rejects `TuvlApiError { status, detail }` |
+
+`client.start(workflow, input)` starts without waiting and returns a `RunHandle`.
+
+**Files.** For a workflow whose trigger has `http.upload`, pass a `File` or `Blob` as the value of a
+`file` input (an array for `list[file]`). The client then sends `multipart/form-data`: files as file parts,
+objects and arrays as JSON text, everything else as text. The server stores the file and hands the workflow a
+reference; the answer is the same as for any run. `tuvl-client generate` types such inputs as `Blob`.
+
+```ts
+await client.execute("intake", { invoice: fileInput.files[0], note: "March" });
+```
+
+### Webhooks: be told instead of polling
+
+A workflow can declare webhooks (`spec.webhooks` in its YAML; the engine's `docs/webhooks.md` covers the
+server side). A notification says only that a run reached a stage: the run id, what happened and a journal
+position. It carries no input or output, so you pull what you need with your own token.
+
+```ts
+import { TuvlClient, webhookHandler } from "@tuvl/client";
+
+const client = new TuvlClient({ baseUrl: "https://tuvl.example.com", token: serviceToken }); // scope runs:read
+
+// Next.js route handler, Cloudflare Worker, Deno, Bun, Hono … anything that speaks Request/Response
+export const POST = webhookHandler({
+  secrets: [process.env.OPS_WEBHOOK_SECRET!],            // add the old secret too while rotating
+  onNotification: async (n) => {
+    if (await alreadySeen(n.id)) return;                 // delivery is at-least-once
+    const run = await client.run(n.run_id).get();        // pull with your own token
+    await pushToDevices(run);
   },
 });
 ```
+
+For Express, give the route the raw body (`express.raw({ type: "application/json" })`) and call
+`verifyWebhook(req.body, req.header("tuvl-signature"), secrets)`; it throws `WebhookError` (answer 401) unless the
+signature matches, the body is untouched and the timestamp is within five minutes. Never verify a re-serialised
+body. `client.runs.webhooks(runId)` lists a run's notifications and `redeliverWebhook` sends one again.
+
+A phone should not hold the secret: receive on your backend, verify, then push only the run id to the device
+(FCM, APNs, ntfy). The app pulls the run with the user's own token.
+
+### Showing an answer while the model writes it
+
+An `llm` agent declared with `stream_tokens: true` (and, when it has several `str` outputs, `stream_field`) sends the text
+of that output to the run's event stream as it is produced, so a UI is not frozen for the length of the call. Ask for it with
+`onToken`, `tokens()` or `stream()`; plain `events()` is unchanged and never receives drafts.
+
+```ts
+const handle = client.run(runId); // or the RunHandle that execute() returned
+
+const live = handle.onToken((piece) => (box.textContent += piece), {
+  onReset: () => (box.textContent = ""), // the agent is starting its answer again: drop the draft
+});
+const output = await handle.wait(); // the final, validated result as always
+await live.done;
+```
+
+- A **piece** is the next part of the text. A client that joins while the agent is running first gets the draft so far in one
+  piece (`replay: true` on the event).
+- A **reset** (`token_reset`) means discard what you showed: the agent retried, or its answer was rejected. The finished result is
+  in the run output (`wait()`), never only in the pieces, so a client that missed some loses nothing.
+- `tokens({ agentId? })` is the same as an async iterator of `token_delta` and `token_reset`; `stream()` yields them together with
+  the journal events, told apart by `type` (`isTokenEvent(event)` narrows).
+- Drafts are not journaled and are not kept: they exist while the run is running. A model that reasons before it answers sends
+  nothing until its answer starts.
+
+### `RunHandle`
+
+| Member | |
+|---|---|
+| `id`, `run` | run id; the run as last seen |
+| `get()` | refresh (`GET /api/runs/{id}`) |
+| `events({ fromSeq?, follow? })` | async iterator of `RunEvent` over SSE: replay, then live until the run ends |
+| `onToken(listener, { onReset?, agentId? })` | call `listener(piece)` for each piece of an answer as it is written; returns `{ stop, done }` |
+| `tokens({ agentId? })`, `stream({ fromSeq?, follow? })` | async iterators of live drafts only, or of journal events and drafts together |
+| `wait({ intervalMs?, timeoutMs?, untilWaiting? })` | poll until the run ends; resolves the output or rejects `TuvlRunError`. `untilWaiting` also stops when it waits on a person |
+| `pause()`, `resume()`, `abort()`, `steer(message)` | operator control (scope `runs:control`) |
+
+`client.run(id)` gives a handle on any run.
+
+### `client.runs`
+
+`list({ workflow?, status?, limit? })`, `get(id)`, `events(id, opts)`, `stream(id, opts)`, `tokens(id, opts)`,
+`control(id, action, message?)`, `export(id)` (the journal as a replayable
+fixture).
+
+### `client.approvals`
+
+```ts
+const [approval] = await client.approvals.list(); // what the caller may decide
+await client.approvals.decide(approval.approval_id, { values: { approved: true } }); // human form
+await client.approvals.decide(toolApproval.approval_id, { decision: "edit", edited_args: { amount: 10 } }); // tool call
+```
+
+Needs scope `approvals:decide` plus the agent's `required_group`.
+
+### `RunEvent`
+
+`{ run_id, seq, ts, type, agent_id, engine, tokens, latency_ms, payload }` — `type`
+is one of `run_queued`, `run_started`, `agent_started`, `agent_completed`,
+`signal`, `llm_turn`, `tool_call`, `tool_result`, `decision`, `judge_verdict`,
+`approval_requested`, `approval_decided`, `paused`, `resumed`, `checkpoint`,
+`compensation_started`, `compensation_completed`, `run_completed`,
+`run_failed`, `run_aborted`.
 
 ---
 
 ## Authentication
 
-The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies or Biscuit decoding logic. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
 
 ### `new TuvlAuth(options)`
 
@@ -111,9 +222,29 @@ window.location.href = auth.getOAuthLoginUrl("google"); // or "github" / "micros
 const token = new URLSearchParams(window.location.search).get("token")!;
 ```
 
+### Read the token locally
+
+Access tokens are Ed25519-signed JWTs, so their claims are readable on the client — enough to
+show who is signed in and to refresh before expiry:
+
+```ts
+import { isTokenExpired, readToken } from "@tuvl/client";
+
+const claims = readToken(token);   // { sub, groups, scopes, tenant?, iat, exp?, ... }
+if (isTokenExpired(token)) {       // expired, or within 30 s of it
+  token = (await auth.refresh(token)).access_token;
+}
+```
+
+`readToken` does **not** verify the signature — use it for display, not for access decisions in
+a client you don't control. The server is the authority, and only it knows about logouts and
+ended sessions. Services that verify tokens themselves can fetch tuvl's public key from
+`GET /auth/jwks.json` (`alg: EdDSA`).
+
 ### Get current user identity and roles
 
-Biscuit tokens are protobuf-encoded and cannot be decoded in pure JS. Use `getMe()` to ask the server to decode the token and return the user's identity, group memberships, and permission scopes:
+`getMe()` asks the server, so it also fails for a revoked token or a user whose sessions were
+ended:
 
 ```ts
 const me = await auth.getMe(token);
@@ -146,151 +277,9 @@ await auth.logout(token);
 
 ---
 
-## Transport selection
-
-`execute()` picks the transport automatically — you never need to branch on it:
-
-| Condition | Transport |
-|---|---|
-| `mode: "rest"` | Plain JSON POST |
-| `mode: "sse"` | SSE stream |
-| `mode: "grpc"` | gRPC-Web stream |
-| `onProgress` provided **and** workflow `has_slow_steps` | SSE (auto) |
-| Default | Plain JSON POST |
-
----
-
-## API
-
-### `new TuvlClient(options)`
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `baseUrl` | `string` | — | tuvl server URL (trailing slash stripped) |
-| `token` | `string` | — | Biscuit Bearer token for all requests |
-| `manifestCacheTtl` | `number` | `60000` | Manifest cache TTL in ms. `0` disables caching |
-
-### `client.execute(workflowName, options?)`
-
-Executes a workflow and returns `Promise<TOutput>` — **the unwrapped `data` payload, identical across REST / SSE / gRPC**.
-
-| Option | Type | Description |
-|---|---|---|
-| `payload` | `Record<string, unknown>` | JSON body matching the workflow's `input_schema` |
-| `onProgress` | `(event: StepEvent) => void` | Called for every step event (SSE / gRPC only) |
-| `onSuspended` | `(event: SuspendedEvent) => void` | Called once when the workflow hits a HITL step. After this fires the promise rejects with `TuvlWorkflowSuspendedError` |
-| `mode` | `"rest" \| "sse" \| "grpc"` | Force a specific transport |
-| `token` | `string` | Per-call token override |
-| `signal` | `AbortSignal` | Cancellation signal |
-
-#### Return-value contract
-
-| Outcome | `execute()` does |
-|---|---|
-| Workflow returns `success: true` | Resolves with `data` |
-| Workflow returns `success: false` | Rejects with `TuvlWorkflowError` (carries `.data` and `.error`) |
-| Workflow suspends at a HITL step | Rejects with `TuvlWorkflowSuspendedError` (carries `.suspended`) |
-| Engine raises an unhandled exception | Rejects with a plain `Error` |
-| HTTP / network failure | Rejects with a plain `Error` |
-
-```ts
-import { TuvlClient, TuvlWorkflowError, TuvlWorkflowSuspendedError } from "@tuvl/client";
-
-try {
-  const candidate = await client.execute<Candidate>("screen-candidate", {
-    payload: { id: 42 },
-    onProgress: (ev) => console.log(ev.step_id, ev.duration_ms),
-    onSuspended: (s) => renderHitlForm(s),
-  });
-  // candidate is the unwrapped data, fully typed
-} catch (err) {
-  if (err instanceof TuvlWorkflowSuspendedError) {
-    // err.suspended.ui, err.suspended.schema, err.suspended.instance_id …
-  } else if (err instanceof TuvlWorkflowError) {
-    // err.data is the partial snapshot, err.error is the structured failure
-  } else {
-    // transport / engine failure
-  }
-}
-```
-
-### `client.executeVersioned(workflowName, version, options?)`
-
-Runs a workflow pinned to a specific schema version (`/{version}/run/{name}`) without relying on the server's active default trigger path.  Accepts the same options as `execute()`.
-
-```ts
-// Always run the v2 contract of "screen-candidate", even if v3 is the default
-const result = await client.executeVersioned("screen-candidate", "v2", {
-  payload: { id: 42 },
-  onProgress: (ev) => console.log(ev.step_id),
-});
-```
-
-### `client.resumeWorkflow(options)`
-
-Resumes a workflow instance that was suspended at a Human-in-the-Loop (HITL) step.
-
-| Option | Type | Description |
-|---|---|---|
-| `instanceId` | `string` | UUID from `SuspendedEvent.instance_id` |
-| `humanInput` | `Record<string, unknown>` | Operator-supplied data to inject into the paused step |
-| `onProgress` | `(event: StepEvent) => void` | Step events after the resume point (SSE mode) |
-| `onSuspended` | `(event: SuspendedEvent) => void` | Called if the workflow suspends again at another HITL step |
-| `mode` | `"rest" \| "sse"` | Force a specific transport (default: REST, SSE when `onProgress` is provided) |
-| `token` | `string` | Per-call token override |
-| `signal` | `AbortSignal` | Cancellation signal |
-
-```ts
-import {
-  TuvlClient,
-  TuvlWorkflowSuspendedError,
-  type SuspendedEvent,
-} from "@tuvl/client";
-
-let suspendedEvent: SuspendedEvent | undefined;
-
-// First pass — workflow suspends at an approval step
-try {
-  await client.execute("hire-candidate", {
-    payload: { candidate_id: 99 },
-    onSuspended: (s) => { suspendedEvent = s; },
-  });
-} catch (err) {
-  if (!(err instanceof TuvlWorkflowSuspendedError)) throw err;
-}
-
-// Human fills in the form …
-const decision = { approved: true, note: "Strong fit" };
-
-// Second pass — resume from where it paused
-const finalResult = await client.resumeWorkflow({
-  instanceId: suspendedEvent!.instance_id,
-  humanInput: decision,
-  onProgress: (ev) => console.log(`[resumed] ${ev.step_id}`),
-});
-```
-
-### `client.getManifest(workflowName)`
-
-Fetches (and caches) the workflow manifest from `/api/_system/workflows/{name}`. Called automatically by `execute()` and `executeVersioned()`.
-
-### `client.listWorkflows()`
-
-Returns all registered workflows with their trigger paths and streaming hints.
-
-### `client.setToken(token)`
-
-Updates the default auth token without recreating the client.
-
-### `client.invalidateManifest(name?)`
-
-Clears the manifest cache for one workflow, or all if no name is given.
-
----
-
 ## CRUD — model data access
 
-`client.crud(modelName)` returns a `CrudClient` that targets the auto-generated REST endpoints at `/models/{modelname}/`. The token and base URL are shared with the parent `TuvlClient`.
+`client.crud(modelName)` returns a `CrudClient` that targets the auto-generated REST endpoints at `/models/{modelname}/`. The token and base URL are shared with the parent `TuvlClient`. In tuvl 2.0 CRUD is off by default: a model opts in per operation with `spec.api.crud: [list, read, create, update, delete]`.
 
 ```ts
 import { TuvlClient } from "@tuvl/client";
@@ -352,51 +341,29 @@ Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters de
 
 ---
 
-## TypeScript types
-
-```ts
-import type {
-  // Auth
-  TokenResponse,        // { access_token, token_type }
-  MeResponse,           // { user_id, groups, scopes }
-  // Workflow execution
-  StepEvent,            // single step update (event_type: "step")
-  DoneEvent,            // terminal envelope { event_type:"done", success, data, error }
-  ErrorEvent,           // engine-level error { event_type:"error", message, details }
-  SuspendedEvent,       // HITL suspension { event_type:"suspended", instance_id, ui, schema, … }
-  RestEnvelope,         // shape of the plain REST response body
-  WorkflowErrorPayload, // shape of the .error field on failures
-  WorkflowManifest,     // shape of /api/_system/workflows/{name}
-  ExecuteOptions,       // options for execute()
-  ExecuteVersionedOptions, // options for executeVersioned() — extends ExecuteOptions + version
-  ResumeOptions,        // options for resumeWorkflow()
-  ResumeRequest,        // raw body sent to POST /api/workflows/resume
-  TuvlClientOptions,    // constructor options
-  CrudListOptions,      // options for crud().list()
-  CrudGetOptions,       // options for crud().get()
-  CrudMutateOptions,    // options for crud().create() / update() / delete()
-} from "@tuvl/client";
-
-// Error classes are real classes — usable with `instanceof`
-import { TuvlWorkflowError, TuvlWorkflowSuspendedError } from "@tuvl/client";
-// CRUD client — also exported for use without TuvlClient
-import { CrudClient } from "@tuvl/client";
-```
-
----
 
 ## Lower-level exports
 
-The package also exports its internal building blocks for advanced use:
+`Transport` (fetch wrapper with auth; `request()` returns the raw `Response`),
+`parseSseStream(response)` (async iterator of `RunEvent`), `TERMINAL_STATUSES`,
+`WAITING_STATUSES`.
 
-```ts
-import { Transport }      from "@tuvl/client"; // raw HTTP layer
-import { parseSseStream } from "@tuvl/client"; // SSE frame parser (async generator)
-import { openGrpcStream } from "@tuvl/client"; // gRPC-Web stream (async generator)
+## Migrating from 1.x
+
+1.x `execute(name, { payload, onProgress })`, `executeVersioned`,
+`resumeWorkflow`, manifests and the per-step SSE frames are gone. Use
+`execute(name, input)`; follow progress with `RunHandle.events()`; answer a
+person with `approvals.decide()` instead of resuming an instance.
+
+## Development
+
+```bash
+pnpm install
+pnpm typecheck && pnpm test && pnpm build
+# live tests against a server running live/workflows/approve_amount.yaml
+TUVL_LIVE_URL=http://localhost:8885 TUVL_LIVE_TOKEN=... pnpm test src/live.test.ts
 ```
-
----
 
 ## License
 
-MIT
+Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Versions before `2.0.0-beta.2` keep the terms they were published with.

@@ -93,26 +93,28 @@ describe("Transport", () => {
     });
   });
 
-  describe("postStream()", () => {
-    it("returns raw Response for SSE consumption", async () => {
-      const sseResponse = new Response("data: {}\n\n", {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream" },
-      });
-      mockFetch.mockResolvedValueOnce(sseResponse);
+  describe("request()", () => {
+    it("returns the raw Response with query, body and auth", async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(503));
+      const t = new Transport({ baseUrl: "http://srv/", defaultToken: "t" });
+      const response = await t.request("POST", "/x", { body: { a: 1 }, query: { wait: false, skip: undefined } });
 
-      const t = new Transport({ baseUrl: "http://srv", defaultToken: "t" });
-      const response = await t.postStream("/stream", { x: 1 });
-
-      expect(response.status).toBe(200);
-      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((init.headers as Record<string, string>)["Accept"]).toBe("text/event-stream");
+      expect(response.status).toBe(503); // not thrown: the caller reads the status
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://srv/x?wait=false");
+      expect(init.body).toBe('{"a":1}');
+      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer t");
+      expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     });
 
-    it("throws on HTTP error from stream endpoint", async () => {
-      mockFetch.mockResolvedValueOnce(errorResponse(503));
+    it("sends no body or content type for a GET", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse([]));
       const t = new Transport({ baseUrl: "http://srv" });
-      await expect(t.postStream("/stream", {})).rejects.toThrow("HTTP 503");
+      await t.request("GET", "/runs", { accept: "text/event-stream" });
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(init.body).toBeUndefined();
+      expect((init.headers as Record<string, string>)["Accept"]).toBe("text/event-stream");
+      expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
     });
   });
 

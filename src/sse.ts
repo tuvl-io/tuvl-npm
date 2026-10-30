@@ -1,116 +1,84 @@
 /**
- * SSE transport for @tuvl/client.
+ * Server-Sent Events parsing for `GET /api/runs/{id}/events` (spec §15.2).
  *
- * Uses the Fetch API ReadableStream to parse SSE frames from a POST response
- * opened by Transport.postStream().  This avoids the browser's native
- * EventSource (which only supports GET) and works in Node 18+.
+ * Each frame is `id: <seq>`, `event: <type>`, `data: <JSON>`; comment lines (`: keep-alive`) are
+ * skipped. The stream ends when the server closes it — after the run's last event when following.
  *
- * Wire format produced by tuvl.core.engine.streaming:
- *
- *   event: step       data: {step_id, kind, signal, snapshot, duration_ms, error_detail}
- *   event: suspended  data: {<hitl_request payload>}
- *   event: done       data: {success, data, error}
- *   event: error      data: {message, details}
- *
- * The JSON body has NO `event_type` field — it lives only on the `event:`
- * line.  This parser injects the event name as `event_type` into the yielded
- * object so downstream consumers can switch on a single discriminator.
+ * With `drafts=true` the server also sends `token_delta` and `token_reset` frames: not journal events
+ * (no `id`, `seq` or `ts`). {@link parseSseStream} yields only journal events, as it always has;
+ * {@link parseSseEvents} yields both.
  */
 
-import type { DoneEvent, ErrorEvent, StepEvent, SuspendedEvent } from "./types";
+import type { RunEvent, RunStreamEvent, TokenDelta, TokenReset } from "./types";
 
-export type SseFrame = StepEvent | DoneEvent | ErrorEvent | SuspendedEvent;
+const TOKEN_FRAMES = new Set(["token_delta", "token_reset"]);
 
-/**
- * Parse an SSE stream from a Fetch Response body.
- *
- * Yields typed frames as they arrive.  The generator terminates when it
- * receives an event with event_type "done", "error", or "suspended", or
- * when the stream closes.
- */
-export async function* parseSseStream(
-  response: Response,
-  signal?: AbortSignal,
-): AsyncGenerator<SseFrame> {
-  if (!response.body) {
-    throw new Error("SSE response has no body");
-  }
+interface Frame {
+  name: string;
+  data: Record<string, unknown>;
+}
 
+async function* frames(response: Response, signal?: AbortSignal): AsyncGenerator<Frame> {
+  if (!response.body) throw new Error("SSE response has no body");
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8");
-
   let buffer = "";
-  let currentEventType = "message";
-  let currentDataLines: string[] = [];
+  let name = "";
+  let data: string[] = [];
 
-  const flush = function* (): Generator<SseFrame> {
-    const dataStr = currentDataLines.join("\n");
-    const eventType = currentEventType;
-    currentDataLines = [];
-    currentEventType = "message";
-
-    if (!dataStr) return;
-
-    let parsed: unknown;
+  const flush = (): Frame | null => {
+    const text = data.join("\n");
+    const frameName = name;
+    data = [];
+    name = "";
+    if (!text) return null;
     try {
-      parsed = JSON.parse(dataStr);
+      const parsed: unknown = JSON.parse(text);
+      return typeof parsed === "object" && parsed !== null
+        ? { name: frameName, data: parsed as Record<string, unknown> }
+        : null;
     } catch {
-      // Non-JSON data frame — skip silently
-      return;
+      return null;
     }
-
-    if (typeof parsed !== "object" || parsed === null) return;
-
-    // Inject the SSE event name as the discriminator. The wire body itself
-    // does not carry it (the server stamps it only on the `event:` line),
-    // so downstream code cannot distinguish frames otherwise.
-    const frame = { ...(parsed as Record<string, unknown>), event_type: eventType };
-    yield frame as SseFrame;
   };
 
   try {
-    while (true) {
-      if (signal?.aborted) break;
-
+    while (!signal?.aborted) {
       const { done, value } = await reader.read();
       if (done) break;
-
       buffer += decoder.decode(value, { stream: true });
-
       const lines = buffer.split("\n");
-      // Last element may be incomplete — keep it in the buffer
       buffer = lines.pop() ?? "";
-
-      for (const rawLine of lines) {
-        // Trim a trailing \r in case the server (or proxy) emits CRLF.
-        const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-
-        if (line.startsWith("event:")) {
-          currentEventType = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          currentDataLines.push(line.slice(5).trim());
-        } else if (line === "") {
-          // End of frame
-          for (const frame of flush()) {
-            yield frame;
-            if (
-              frame.event_type === "done" ||
-              frame.event_type === "error" ||
-              frame.event_type === "suspended"
-            ) {
-              return;
-            }
-          }
+      for (const raw of lines) {
+        const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+        if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+        else if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line === "") {
+          const frame = flush();
+          if (frame) yield frame;
         }
-        // Comments (:) and retry: lines are intentionally ignored
       }
     }
-
-    // Flush any remaining buffered frame
-    for (const frame of flush()) {
-      yield frame;
-    }
+    if (buffer.startsWith("data:")) data.push(buffer.slice(5).trimStart());
+    const last = flush();
+    if (last) yield last;
   } finally {
     reader.releaseLock();
+  }
+}
+
+/** Yield every journal event of an SSE response body, in order (live drafts are skipped). */
+export async function* parseSseStream(response: Response, signal?: AbortSignal): AsyncGenerator<RunEvent> {
+  for await (const frame of frames(response, signal)) {
+    if (!TOKEN_FRAMES.has(frame.name)) yield frame.data as unknown as RunEvent;
+  }
+}
+
+/** Yield journal events and live drafts (`token_delta`, `token_reset`), in order. */
+export async function* parseSseEvents(response: Response, signal?: AbortSignal): AsyncGenerator<RunStreamEvent> {
+  for await (const frame of frames(response, signal)) {
+    if (frame.name === "token_delta") yield { ...frame.data, type: "token_delta" } as unknown as TokenDelta;
+    else if (frame.name === "token_reset") yield { ...frame.data, type: "token_reset" } as unknown as TokenReset;
+    else yield frame.data as unknown as RunEvent;
   }
 }

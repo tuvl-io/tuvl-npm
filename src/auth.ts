@@ -31,12 +31,12 @@ export class TuvlAuth {
   }
 
   /**
-   * Decode the current token server-side and return the user's identity,
-   * role memberships (`groups`), and permission scopes.
+   * Ask the server who the token belongs to: the user's identity, role
+   * memberships (`groups`) and permission scopes.
    *
-   * Biscuit tokens are protobuf-encoded and cannot be decoded in pure JS,
-   * so this is the correct way to read "who is logged in" and "what can
-   * they do" from the TypeScript SDK.
+   * To just display them, `readToken(token)` reads the same claims locally.
+   * `getMe` is the authoritative answer: it fails for a revoked token or a
+   * user whose sessions were ended, which the token itself can't show.
    *
    * @throws if the token is invalid, expired, or revoked.
    */
@@ -58,7 +58,7 @@ export class TuvlAuth {
   }
 
   /**
-   * Exchange an email + password for a Biscuit bearer token.
+   * Exchange an email + password for an access token (an Ed25519-signed JWT).
    *
    * Calls `POST /auth/token` with an `application/x-www-form-urlencoded`
    * body (OAuth2 password-grant). The `username` field must be the user's
@@ -117,7 +117,7 @@ export class TuvlAuth {
    * works.
    *
    * After the OAuth dance the server either:
-   * - redirects to `TUVL_OAUTH_UI_REDIRECT_URL?token=<biscuit_b64>`, OR
+   * - redirects to `TUVL_OAUTH_UI_REDIRECT_URL?token=<jwt>`, OR
    * - returns a JSON `{access_token, token_type}` body (CLI / server flows).
    */
   getOAuthLoginUrl(provider: string): string {
