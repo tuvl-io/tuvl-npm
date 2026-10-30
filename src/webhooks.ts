@@ -86,8 +86,11 @@ function parse(signature: string): { timestamp: number; candidates: Uint8Array<A
       if (decoded) candidates.push(decoded);
     }
   }
-  if (timestamps.length !== 1 || !/^\d+$/.test(timestamps[0]!) || candidates.length === 0) return undefined;
-  return { timestamp: Number(timestamps[0]), candidates };
+  const [timestamp] = timestamps;
+  if (timestamps.length !== 1 || timestamp === undefined || !/^\d+$/.test(timestamp) || candidates.length === 0) {
+    return undefined;
+  }
+  return { timestamp: Number(timestamp), candidates };
 }
 
 function shape(value: unknown): RunNotification | undefined {

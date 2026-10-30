@@ -17,9 +17,11 @@ pnpm install --frozen-lockfile
 
 ```bash
 pnpm typecheck    # tsc --noEmit
+pnpm lint         # biome (lint only; there is no formatter)
 pnpm test         # vitest, one shot
+pnpm test:coverage  # the same, with a v8 coverage report
 pnpm build        # tsup: ESM + CJS + types, and the tuvl-client CLI
-make check        # typecheck + test, the CI gate
+make check        # typecheck + lint + test, the CI gate
 ```
 
 The client has no runtime dependencies and uses only web-standard APIs (`fetch`, `ReadableStream`, Web Crypto), so it runs

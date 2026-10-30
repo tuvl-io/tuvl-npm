@@ -1,5 +1,5 @@
 .PHONY: help setup install dev build clean \
-        test test-watch test-verbose typecheck check \
+        test test-watch test-verbose coverage typecheck lint check \
         smoke verify publish-dry publish whoami
 
 # ── Package manager + tools ──────────────────────────────────────────────────
@@ -23,8 +23,10 @@ help:
 	@echo "  test          Run the vitest suite (one-shot)"
 	@echo "  test-watch    Run vitest in watch mode"
 	@echo "  test-verbose  Run vitest with the verbose reporter"
+	@echo "  coverage      Run the suite with a v8 coverage report"
 	@echo "  typecheck     Run tsc --noEmit"
-	@echo "  check         typecheck + test (CI quality gate)"
+	@echo "  lint          Run biome (lint + format check)"
+	@echo "  check         typecheck + lint + test (CI quality gate)"
 	@echo ""
 	@echo "  smoke         pack → install into /tmp → require() the artefact"
 	@echo "  verify        check + build + smoke (pre-publish gate)"
@@ -57,11 +59,17 @@ test-watch:
 test-verbose:
 	$(NPX) vitest run --reporter verbose
 
+coverage:
+	$(PKG) run test:coverage
+
 # ── Quality gates ────────────────────────────────────────────────────────────
 typecheck:
 	$(PKG) run typecheck
 
-check: typecheck test
+lint:
+	$(PKG) run lint
+
+check: typecheck lint test
 
 # ── Pre-publish smoke test ───────────────────────────────────────────────────
 # Pack the package into a tarball exactly as it would ship to npm, install it
@@ -151,7 +159,7 @@ whoami:
 
 # ── Clean ────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf $(DIST)
+	rm -rf $(DIST) coverage
 	rm -rf node_modules/.cache node_modules/.vite
 	rm -f tuvl-client-*.tgz
 	rm -rf /tmp/tuvl-smoke
