@@ -1,4 +1,6 @@
 ## Description
+Target branch is `develop`; `main` only takes releases from it.
+
 What changed and why. Link the issue it closes (`Closes #123`).
 
 ## Type of Change

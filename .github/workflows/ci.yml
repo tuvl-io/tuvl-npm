@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -38,3 +38,20 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+
+  # all work lands on develop; main only receives a release from it
+  branch-flow:
+    name: main takes pull requests from develop only
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ${{ github.event.repository.private && fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') || 'ubuntu-latest' }}
+    permissions: {}
+    steps:
+      - name: Check the head branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [[ "$HEAD_REF" != "develop" || "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]]; then
+            echo "::error::main only takes pull requests from develop; open this one against develop"
+            exit 1
+          fi
