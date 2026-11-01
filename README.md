@@ -52,6 +52,29 @@ if (result instanceof RunHandle) {
 
 ---
 
+## In a browser
+
+A page may call only its own origin unless the server says otherwise, and a tuvl server sends no CORS headers by default. A call from a UI on
+another origin (a Vite dev server, a CDN) fails in the browser before tuvl sees it, and `fetch` rejects with its own `TypeError` ("Failed to fetch"),
+not a `TuvlApiError`. Either:
+
+- **let the server allow the origin**, in the server's `.tuvl/system.yaml` (needs tuvl 2.0, restart required) or with `TUVL_CORS_ORIGINS`:
+
+  ```yaml
+  spec:
+    api:
+      cors_origins: [https://app.example.com, http://localhost:5173]   # scheme://host[:port], no trailing slash
+  ```
+
+- **or serve the UI and the server from one origin**: a reverse proxy in production and your dev server's proxy in development for `/api`, `/auth` and
+  `/models`, with `baseUrl: window.location.origin`.
+
+Nothing is allowed by default, in development too. The client sends tokens in an `Authorization` header and never uses cookies, so it needs no credentials
+mode. The server exposes `X-Tuvl-Run-Id`, which the client reads to tell a finished run from a refused request. Server-side code, mobile apps and
+Node are not affected. CORS decides which pages the browser lets read an answer; it is not authentication.
+
+---
+
 ## Typed workflows
 
 ```bash

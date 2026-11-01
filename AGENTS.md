@@ -25,6 +25,9 @@ Answer a waiting run with `client.approvals.decide(approvalId, { values })` (hum
 ## 4a. Files and Webhooks
 Pass a `File` or `Blob` as a `file` input of a workflow whose trigger has `http.upload`; the client sends `multipart/form-data`, and the server makes the file reference. Verify webhooks against the raw body with `verifyWebhook` or `webhookHandler`, de-duplicate on the notification id, and pull the run with your own token.
 
+## 4b. Browsers
+A browser app on another origin than the tuvl server is blocked unless the server lists it in `spec.api.cors_origins` (or `TUVL_CORS_ORIGINS`), or the app shares the server's origin through a proxy. A blocked call rejects with the browser's own `TypeError`, not `TuvlApiError`. Do not add `mode: "no-cors"` or a public CORS proxy; ask for the origin to be allowed. Keep tokens in memory or an `HttpOnly` cookie of your own backend, never in `localStorage`.
+
 ## 5. CRUD Operations
 Use `client.crud("modelName")`: `list`, `get`, `create`, `update`, `delete`. The model must opt in with `spec.api.crud`. Pass filters via the `filters` option, never in the URL.
 
