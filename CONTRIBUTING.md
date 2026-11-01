@@ -45,10 +45,10 @@ TUVL_LIVE_URL=http://localhost:8885 TUVL_LIVE_TOKEN=<token> pnpm test src/live.t
 
 ## Pull requests
 
-1. Fork the repository and branch from `develop`: `git checkout -b fix/my-change`.
+1. Fork the repository and branch from `main`: `git checkout -b fix/my-change`.
 2. Run `make check && pnpm build`.
 3. Use a conventional commit message (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
-4. Open the pull request against `develop` and say what changed and why.
+4. Open the pull request against `main` and say what changed and why.
 
 ### Sign-off
 
@@ -60,7 +60,18 @@ Signed-off-by: Your Name <you@example.com>
 ```
 
 Use your real name and an address you can be reached at. A pull request whose commits are not signed off
-will be asked to add it (`git rebase --signoff develop`).
+will be asked to add it (`git rebase --signoff main`).
+
+## Releasing
+
+Maintainers only. Pushing a tag `vX.Y.Z` that is on `main` publishes `@tuvl/client` to npm.
+
+1. Set `version` in `package.json` (`X.Y.Z`, or `X.Y.Z-beta.N` for a prerelease), open a pull request to `main` and merge it when CI is green.
+2. Tag the merge commit and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The release workflow refuses a tag that is not on `main` or does not match `package.json`, then typechecks, lints, tests,
+builds and runs `npm publish` (with provenance). A prerelease goes out under its own dist-tag (`beta`, `rc`, …), so it never
+moves `latest`.
 
 ## Security
 

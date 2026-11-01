@@ -1,5 +1,9 @@
 # @tuvl/client
 
+[![npm](https://img.shields.io/npm/v/@tuvl/client)](https://www.npmjs.com/package/@tuvl/client)
+[![CI](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml/badge.svg)](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml)
+[![License](https://img.shields.io/npm/l/@tuvl/client)](LICENSE)
+
 > `@tuvl/client` 2.x targets engine `tuvl >= 2.0`: REST + Server-Sent Events
 > only. Breaking changes bump the major version ([SemVer](https://semver.org)).
 
@@ -18,7 +22,8 @@ npm install @tuvl/client
 pnpm add @tuvl/client
 ```
 
-It talks to a tuvl `2.0` server (`uv tool install tuvl`); file uploads and webhook verification need 2.0.
+It needs Node.js 18 or newer (or a browser, Deno, Bun or an edge runtime) and has no runtime dependencies. It talks to a
+tuvl `2.0` server, which you install with `uv tool install "tuvl[standard]"` ([install guide](https://tuvl.dev/getting-started/installation/)).
 
 ---
 
@@ -185,7 +190,7 @@ is one of `run_queued`, `run_started`, `agent_started`, `agent_completed`,
 
 ## Authentication
 
-The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path }`, the same as every other call. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
 
 ### `new TuvlAuth(options)`
 
@@ -318,7 +323,7 @@ await client.crud("candidate").delete("uuid");
 
 ### `client.crud<TRead, TCreate, TUpdate>(modelName)`
 
-Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased automatically.
+Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased automatically. A refused call rejects with `TuvlApiError`.
 
 ### `CrudListOptions`
 
@@ -359,12 +364,18 @@ person with `approvals.decide()` instead of resuming an instance.
 
 ```bash
 pnpm install
-pnpm typecheck && pnpm test && pnpm build
+pnpm typecheck && pnpm lint && pnpm test && pnpm build
 # live tests against a server running live/workflows/approve_amount.yaml
 TUVL_LIVE_URL=http://localhost:8885 TUVL_LIVE_TOKEN=... pnpm test src/live.test.ts
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## Links
+
+- Documentation: [tuvl.dev](https://tuvl.dev)
+- The engine: [tuvl-io/tuvl](https://github.com/tuvl-io/tuvl)
+- Issues and pull requests: [CONTRIBUTING.md](CONTRIBUTING.md); security reports: [SECURITY.md](SECURITY.md)
 
 ## License
 
