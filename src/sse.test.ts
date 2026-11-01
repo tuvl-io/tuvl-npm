@@ -84,3 +84,58 @@ describe("parseSseStream", () => {
     await expect(collect(new Response(null))).rejects.toThrow("no body");
   });
 });
+
+/** A stream that stays open after its chunks, and reports when the reader cancels it. */
+function open(chunks: string[], onCancel: () => void): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      },
+      cancel: onCancel,
+    }),
+  );
+}
+
+describe("closing the stream", () => {
+  it("breaking out of the loop cancels the connection", async () => {
+    let cancelled = false;
+    const response = open([frame(event(1, "run_started")), frame(event(2, "agent_started"))], () => (cancelled = true));
+    for await (const e of parseSseStream(response)) {
+      expect(e.seq).toBe(1);
+      break;
+    }
+    expect(cancelled).toBe(true);
+  });
+
+  it("an abort ends a read that is waiting for the next chunk", async () => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const next = parseSseStream(open([], () => (cancelled = true)), controller.signal).next();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    await expect(next).resolves.toMatchObject({ done: true });
+    expect(cancelled).toBe(true);
+  });
+
+  it("an abort before the first read yields nothing", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    expect(await collectWith(stream(frame(event(1, "run_started"))), controller.signal)).toEqual([]);
+  });
+});
+
+async function collectWith(response: Response, signal: AbortSignal): Promise<RunEvent[]> {
+  const out: RunEvent[] = [];
+  for await (const e of parseSseStream(response, signal)) out.push(e);
+  return out;
+}
+
+describe("frames that are not events", () => {
+  it("skips JSON that is not an object", async () => {
+    const events = await collect(stream("data: 123\n\n", "data: null\n\n", 'data: "text"\n\n', frame(event(1, "run_started"))));
+    expect(events.map((e) => e.seq)).toEqual([1]);
+  });
+});
+

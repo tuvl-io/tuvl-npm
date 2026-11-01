@@ -1,0 +1,7 @@
+{
+  "$schema": "https://biomejs.dev/schemas/latest/schema.json",
+  "files": { "includes": ["src/**", "!**/__fixtures__"] },
+  "formatter": { "enabled": false },
+  "linter": { "enabled": true },
+  "assist": { "enabled": false }
+}

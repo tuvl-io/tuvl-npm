@@ -83,6 +83,15 @@ function inputSchema(op: Operation): Schema {
   return { type: "object", properties, required };
 }
 
+/** How many workflows `generate` will type: the operations that carry `x-tuvl-workflow`. */
+export function countWorkflows(doc: OpenApiDocument): number {
+  let count = 0;
+  for (const methods of Object.values(doc.paths ?? {})) {
+    for (const op of Object.values(methods)) if (op["x-tuvl-workflow"]) count++;
+  }
+  return count;
+}
+
 /** Generate the `Workflows` type module from an OpenAPI document. */
 export function generate(doc: OpenApiDocument, source = "openapi.json"): string {
   const workflows: string[] = [];

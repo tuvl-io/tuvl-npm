@@ -86,8 +86,11 @@ function parse(signature: string): { timestamp: number; candidates: Uint8Array<A
       if (decoded) candidates.push(decoded);
     }
   }
-  if (timestamps.length !== 1 || !/^\d+$/.test(timestamps[0]!) || candidates.length === 0) return undefined;
-  return { timestamp: Number(timestamps[0]), candidates };
+  const [timestamp] = timestamps;
+  if (timestamps.length !== 1 || timestamp === undefined || !/^\d+$/.test(timestamp) || candidates.length === 0) {
+    return undefined;
+  }
+  return { timestamp: Number(timestamp), candidates };
 }
 
 function shape(value: unknown): RunNotification | undefined {
@@ -133,7 +136,10 @@ export async function verifyWebhook(
     throw new WebhookError("stale");
   }
 
-  const signed = new Uint8Array([...encoder.encode(`${parsed.timestamp}.`), ...body]);
+  const prefix = encoder.encode(`${parsed.timestamp}.`);
+  const signed = new Uint8Array(prefix.length + body.length);
+  signed.set(prefix);
+  signed.set(body, prefix.length);
   let genuine = false;
   for (const secret of accepted) {
     const key = await crypto.subtle.importKey(

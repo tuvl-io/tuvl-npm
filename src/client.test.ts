@@ -232,3 +232,83 @@ describe("runs and approvals", () => {
     expect(JSON.parse(String(call(1).init.body))).toEqual({ values: { approved: true } });
   });
 });
+
+const draft = (agent: string, text: string) =>
+  `event: token_delta\ndata: ${JSON.stringify({ run_id: "r1", agent_id: agent, delta: text, replay: false })}\n\n`;
+
+describe("aborting", () => {
+  it("wait() stops sleeping when its signal aborts", async () => {
+    mockFetch.mockResolvedValue(json(run()));
+    const controller = new AbortController();
+    const waiting = client().run("r1").wait({ intervalMs: 60_000, signal: controller.signal });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    controller.abort();
+    await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("wait() with a signal that is already aborted does not sleep", async () => {
+    mockFetch.mockImplementation(async () => json(run()));
+    const controller = new AbortController();
+    controller.abort();
+    await expect(client().run("r1").wait({ signal: controller.signal, intervalMs: 60_000 })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
+  it("onToken() lets go of the caller's signal when the stream ends", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(draft("write", "hi")));
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const pieces: string[] = [];
+    await client().run("r1").onToken((piece) => pieces.push(piece), { signal: controller.signal }).done;
+    expect(pieces).toEqual(["hi"]);
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it("onToken() with a signal that is already aborted never reads", async () => {
+    mockFetch.mockImplementationOnce(async (_url, init) => {
+      if (init?.signal?.aborted) throw init.signal.reason;
+      return new Response(draft("write", "hi"));
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(client().run("r1").onToken(() => undefined, { signal: controller.signal }).done).resolves.toBeUndefined();
+  });
+});
+
+describe("the rest of the surface", () => {
+  it("resume() and abort() post to the run", async () => {
+    mockFetch.mockImplementation(async () => json(run()));
+    const handle = client().run("r1");
+    await handle.resume();
+    await handle.abort();
+    expect(call(0).url).toBe("http://srv/api/runs/r1/resume");
+    expect(call(1).url).toBe("http://srv/api/runs/r1/abort");
+    expect(call(1).init.method).toBe("POST");
+  });
+
+  it("setToken() changes the token sent from then on", async () => {
+    mockFetch.mockImplementation(async () => json([]));
+    const c = client();
+    await c.runs.list();
+    c.setToken("fresh");
+    await c.runs.list();
+    expect((call(0).init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    expect((call(1).init.headers as Record<string, string>).Authorization).toBe("Bearer fresh");
+  });
+
+  it("runs.export() reads the run's fixture", async () => {
+    mockFetch.mockResolvedValueOnce(json({ journal: [] }));
+    expect(await client().runs.export("r1")).toEqual({ journal: [] });
+    expect(call().url).toBe("http://srv/api/runs/r1/export");
+  });
+
+  it("events() rejects with TuvlApiError when the stream is refused", async () => {
+    mockFetch.mockResolvedValueOnce(json({ detail: "Access denied" }, 403));
+    const read = async () => {
+      for await (const _ of client().run("r1").events()) void _;
+    };
+    await expect(read()).rejects.toMatchObject({ status: 403, detail: "Access denied", path: "/api/runs/r1/events" });
+  });
+});
+

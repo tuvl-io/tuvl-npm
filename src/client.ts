@@ -6,7 +6,7 @@
 import { CrudClient } from "./crud";
 import { toFormData } from "./form";
 import { parseSseEvents, parseSseStream } from "./sse";
-import { Transport } from "./transport";
+import { Transport, detail } from "./transport";
 import {
   TERMINAL_STATUSES,
   isTokenEvent,
@@ -29,18 +29,6 @@ import {
 
 type Input<W extends WorkflowTypes, K extends keyof W> = W[K]["input"];
 type Output<W extends WorkflowTypes, K extends keyof W> = W[K]["output"];
-
-async function detail(response: Response): Promise<unknown> {
-  const text = await response.text();
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return typeof parsed === "object" && parsed !== null && "detail" in parsed
-      ? (parsed as { detail: unknown }).detail
-      : parsed;
-  } catch {
-    return text;
-  }
-}
 
 /**
  * A run that is still going (or waiting on a person) when the call returns.
@@ -95,7 +83,9 @@ export class RunHandle<TOutput = unknown> {
     options: RequestOptions & { agentId?: string; onReset?: (agentId: string) => void } = {},
   ): { stop: () => void; done: Promise<void> } {
     const controller = new AbortController();
-    options.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+    const onAbort = () => controller.abort();
+    if (options.signal?.aborted) controller.abort();
+    else options.signal?.addEventListener("abort", onAbort, { once: true });
     const done = (async () => {
       try {
         for await (const event of this.tokens({ ...options, signal: controller.signal })) {
@@ -104,6 +94,8 @@ export class RunHandle<TOutput = unknown> {
         }
       } catch (error) {
         if (!controller.signal.aborted) throw error;
+      } finally {
+        options.signal?.removeEventListener("abort", onAbort);
       }
     })();
     return { stop: () => controller.abort(), done };
@@ -127,7 +119,7 @@ export class RunHandle<TOutput = unknown> {
       if (Date.now() + interval > deadline) {
         throw new Error(`tuvl run ${this.id} is still ${run.status} after ${options?.timeoutMs}ms`);
       }
-      await new Promise((resolve) => setTimeout(resolve, interval));
+      await sleep(interval, options?.signal);
     }
   }
 
@@ -147,6 +139,22 @@ export class RunHandle<TOutput = unknown> {
   steer(message: string, options?: RequestOptions): Promise<Run> {
     return this.client.runs.control(this.id, "steer", message, options);
   }
+}
+
+/** Wait `ms`, or reject as soon as `signal` aborts. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function outputOf<T>(run: Run): T {
@@ -245,10 +253,10 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
       filters: { workflow?: string; status?: RunStatus; limit?: number } = {},
       options?: RequestOptions,
     ): Promise<Run[]> =>
-      this.json<Run[]>("GET", "/api/runs", { query: { ...filters }, ...options }),
+      this.transport.json<Run[]>("GET", "/api/runs", { query: { ...filters }, ...options }),
 
     get: (runId: string, options?: RequestOptions): Promise<Run> =>
-      this.json<Run>("GET", `/api/runs/${encodeURIComponent(runId)}`, options),
+      this.transport.json<Run>("GET", `/api/runs/${encodeURIComponent(runId)}`, options),
 
     /** Replay from `fromSeq`, then follow live until the run ends (unless `follow: false`). */
     events: (runId: string, options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunEvent> =>
@@ -268,30 +276,30 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
       message?: string,
       options?: RequestOptions,
     ): Promise<Run> =>
-      this.json<Run>("POST", `/api/runs/${encodeURIComponent(runId)}/${action}`, {
+      this.transport.json<Run>("POST", `/api/runs/${encodeURIComponent(runId)}/${action}`, {
         body: message !== undefined ? { message } : {},
         ...options,
       }),
 
     /** The webhook notifications of a run and whether each was delivered. */
     webhooks: (runId: string, options?: RequestOptions): Promise<WebhookDelivery[]> =>
-      this.json<WebhookDelivery[]>("GET", `/api/runs/${encodeURIComponent(runId)}/webhooks`, options),
+      this.transport.json<WebhookDelivery[]>("GET", `/api/runs/${encodeURIComponent(runId)}/webhooks`, options),
 
     /** Send one notification again (scope `runs:control`). */
     redeliverWebhook: (runId: string, deliveryId: string, options?: RequestOptions): Promise<{ id: string; status: string }> =>
-      this.json("POST", `/api/runs/${encodeURIComponent(runId)}/webhooks/${encodeURIComponent(deliveryId)}/redeliver`, options),
+      this.transport.json("POST", `/api/runs/${encodeURIComponent(runId)}/webhooks/${encodeURIComponent(deliveryId)}/redeliver`, options),
 
     /** The run's journal as a replayable fixture (`tuvl pin run`). */
     export: (runId: string, options?: RequestOptions): Promise<Record<string, unknown>> =>
-      this.json("GET", `/api/runs/${encodeURIComponent(runId)}/export`, options),
+      this.transport.json("GET", `/api/runs/${encodeURIComponent(runId)}/export`, options),
   };
 
   readonly approvals = {
     /** Pending approvals the caller may decide. */
-    list: (options?: RequestOptions): Promise<Approval[]> => this.json<Approval[]>("GET", "/api/approvals", options),
+    list: (options?: RequestOptions): Promise<Approval[]> => this.transport.json<Approval[]>("GET", "/api/approvals", options),
 
     decide: (approvalId: string, decision: ApprovalDecision, options?: RequestOptions): Promise<Record<string, unknown>> =>
-      this.json("POST", `/api/approvals/${encodeURIComponent(approvalId)}`, { body: decision, ...options }),
+      this.transport.json("POST", `/api/approvals/${encodeURIComponent(approvalId)}`, { body: decision, ...options }),
   };
 
   /** CRUD on a model exposed with `spec.api.crud`. */
@@ -299,16 +307,6 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
     model: string,
   ): CrudClient<TRead, TCreate, TUpdate> {
     return new CrudClient<TRead, TCreate, TUpdate>(this.transport, model);
-  }
-
-  private async json<T>(
-    method: string,
-    path: string,
-    options?: RequestOptions & { body?: unknown; query?: Record<string, string | number | boolean | undefined> },
-  ): Promise<T> {
-    const response = await this.transport.request(method, path, options);
-    if (!response.ok) throw new TuvlApiError(response.status, await detail(response), path);
-    return (await response.json()) as T;
   }
 
   private async eventsResponse(

@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TuvlAuth } from "./auth";
+import { TuvlApiError } from "./types";
 
 const mockFetch = vi.fn<typeof fetch>();
 
@@ -146,6 +147,38 @@ describe("TuvlAuth", () => {
       mockFetch.mockResolvedValueOnce(new Response("error", { status: 500 }));
       const auth = new TuvlAuth({ baseUrl: "http://srv" });
       await expect(auth.logout("tok")).rejects.toThrow("HTTP 500");
+    });
+  });
+
+  describe("errors", () => {
+    it("reject with a TuvlApiError, as the rest of the client does", async () => {
+      const auth = new TuvlAuth({ baseUrl: "http://srv" });
+      mockFetch.mockResolvedValueOnce(jsonResponse({ detail: "Incorrect email or password" }, 401));
+      const error = await auth.loginWithPassword("u", "p").catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(TuvlApiError);
+      expect(error).toMatchObject({ status: 401, detail: "Incorrect email or password", path: "/auth/token" });
+
+      mockFetch.mockResolvedValueOnce(new Response("down", { status: 503 }));
+      await expect(auth.getMe("tok")).rejects.toBeInstanceOf(TuvlApiError);
+      mockFetch.mockResolvedValueOnce(new Response("down", { status: 503 }));
+      await expect(auth.logout("tok")).rejects.toBeInstanceOf(TuvlApiError);
+    });
+  });
+
+  describe("signal", () => {
+    it("is passed to fetch", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ user_id: "u1" }));
+      const controller = new AbortController();
+      await new TuvlAuth({ baseUrl: "http://srv" }).getMe("tok", { signal: controller.signal });
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(init.signal).toBe(controller.signal);
+    });
+  });
+
+  describe("logout() with a body", () => {
+    it("ignores a body on success", async () => {
+      mockFetch.mockResolvedValueOnce(new Response("ok", { status: 200 }));
+      await expect(new TuvlAuth({ baseUrl: "http://srv" }).logout("tok")).resolves.toBeUndefined();
     });
   });
 });

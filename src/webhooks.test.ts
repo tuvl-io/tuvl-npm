@@ -103,3 +103,21 @@ describe("webhookHandler", () => {
     expect((await handle(request(fresh()))).status).toBe(500);
   });
 });
+
+describe("verifyWebhook body types", () => {
+  it("accepts the raw body as an ArrayBuffer", async () => {
+    const bytes = new TextEncoder().encode(BODY);
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const n = await verifyWebhook(buffer, header(), SECRET, { now: T });
+    expect(n.seq).toBe(7);
+  });
+
+  it("accepts the raw body as bytes", async () => {
+    expect((await verifyWebhook(new TextEncoder().encode(BODY), header(), SECRET, { now: T })).seq).toBe(7);
+  });
+
+  it("rejects a parsed object", async () => {
+    await expect(verifyWebhook({} as never, header(), SECRET, { now: T })).rejects.toThrow("raw request body");
+  });
+});
+

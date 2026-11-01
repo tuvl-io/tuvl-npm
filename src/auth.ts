@@ -5,10 +5,13 @@
  * OAuth start, bootstrap) so consumers never have to manually construct
  * form-encoded bodies or manage Bearer headers for auth operations.
  *
+ * A refused request rejects with {@link TuvlApiError}, as everywhere else in the client.
+ *
  * Admin endpoints (user/role/scope CRUD, federation config) are NOT wrapped
  * — call them directly via `Transport` or `fetch` with the token.
  */
 
+import { Transport } from "./transport";
 import type { MeResponse, TokenResponse } from "./types";
 
 export interface TuvlAuthOptions {
@@ -23,11 +26,16 @@ export interface BootstrapRequest {
   admin_scope?: string;
 }
 
+/** Per-call options for the auth helpers. */
+export interface AuthCallOptions {
+  signal?: AbortSignal;
+}
+
 export class TuvlAuth {
-  private readonly baseUrl: string;
+  private readonly transport: Transport;
 
   constructor(options: TuvlAuthOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, "");
+    this.transport = new Transport({ baseUrl: options.baseUrl });
   }
 
   /**
@@ -38,23 +46,10 @@ export class TuvlAuth {
    * `getMe` is the authoritative answer: it fails for a revoked token or a
    * user whose sessions were ended, which the token itself can't show.
    *
-   * @throws if the token is invalid, expired, or revoked.
+   * @throws {TuvlApiError} if the token is invalid, expired, or revoked.
    */
-  async getMe(token: string): Promise<MeResponse> {
-    const response = await fetch(`${this.baseUrl}/auth/me`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl getMe failed (HTTP ${response.status}): ${text}`);
-    }
-
-    return response.json() as Promise<MeResponse>;
+  getMe(token: string, options?: AuthCallOptions): Promise<MeResponse> {
+    return this.transport.json<MeResponse>("GET", "/auth/me", { token, ...options });
   }
 
   /**
@@ -64,24 +59,11 @@ export class TuvlAuth {
    * body (OAuth2 password-grant). The `username` field must be the user's
    * email address.
    */
-  async loginWithPassword(email: string, password: string): Promise<TokenResponse> {
-    const body = new URLSearchParams({ username: email, password });
-
-    const response = await fetch(`${this.baseUrl}/auth/token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
-      body,
+  loginWithPassword(email: string, password: string, options?: AuthCallOptions): Promise<TokenResponse> {
+    return this.transport.json<TokenResponse>("POST", "/auth/token", {
+      form: new URLSearchParams({ username: email, password }),
+      ...options,
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl login failed (HTTP ${response.status}): ${text}`);
-    }
-
-    return response.json() as Promise<TokenResponse>;
   }
 
   /**
@@ -90,22 +72,8 @@ export class TuvlAuth {
    * Calls `POST /auth/bootstrap`. Returns 409 on every subsequent call
    * once any user exists.
    */
-  async bootstrap(req: BootstrapRequest): Promise<TokenResponse> {
-    const response = await fetch(`${this.baseUrl}/auth/bootstrap`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(req),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl bootstrap failed (HTTP ${response.status}): ${text}`);
-    }
-
-    return response.json() as Promise<TokenResponse>;
+  bootstrap(req: BootstrapRequest, options?: AuthCallOptions): Promise<TokenResponse> {
+    return this.transport.json<TokenResponse>("POST", "/auth/bootstrap", { body: req, ...options });
   }
 
   /**
@@ -121,28 +89,15 @@ export class TuvlAuth {
    * - returns a JSON `{access_token, token_type}` body (CLI / server flows).
    */
   getOAuthLoginUrl(provider: string): string {
-    return `${this.baseUrl}/auth/oauth/${encodeURIComponent(provider)}/start`;
+    return `${this.transport.baseUrl}/auth/oauth/${encodeURIComponent(provider)}/start`;
   }
 
   /**
    * Exchange a valid (non-expired, non-revoked) token for a fresh one.
    * The old token is immediately blacklisted — discard it after this call.
    */
-  async refresh(token: string): Promise<TokenResponse> {
-    const response = await fetch(`${this.baseUrl}/auth/refresh`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl token refresh failed (HTTP ${response.status}): ${text}`);
-    }
-
-    return response.json() as Promise<TokenResponse>;
+  refresh(token: string, options?: AuthCallOptions): Promise<TokenResponse> {
+    return this.transport.json<TokenResponse>("POST", "/auth/refresh", { token, ...options });
   }
 
   /**
@@ -150,17 +105,7 @@ export class TuvlAuth {
    * across all workers that share a Redis instance. Resolves silently on
    * success (HTTP 204).
    */
-  async logout(token: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/auth/logout`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok && response.status !== 204) {
-      const text = await response.text();
-      throw new Error(`tuvl logout failed (HTTP ${response.status}): ${text}`);
-    }
+  async logout(token: string, options?: AuthCallOptions): Promise<void> {
+    await this.transport.send("POST", "/auth/logout", { token, ...options });
   }
 }

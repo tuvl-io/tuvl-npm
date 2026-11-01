@@ -1,14 +1,32 @@
 /**
  * Low-level HTTP transport for @tuvl/client.
  *
- * Handles auth header injection, JSON serialisation, and returns raw
- * Response objects so higher-level transports (SSE) can consume them.
+ * Handles auth header injection and JSON serialisation. `request` returns the raw
+ * Response (for SSE and status-aware callers); the JSON helpers reject with
+ * {@link TuvlApiError} when the server refuses.
  */
+
+import { TuvlApiError } from "./types";
 
 export interface TransportOptions {
   baseUrl: string;
   defaultToken?: string;
 }
+
+/** What the server said about a refusal: the `detail` of a JSON body, else the body, else its text. */
+export async function detail(response: Response): Promise<unknown> {
+  const text = await response.text();
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null && "detail" in parsed
+      ? (parsed as { detail: unknown }).detail
+      : parsed;
+  } catch {
+    return text;
+  }
+}
+
+type CallOptions = { token?: string; signal?: AbortSignal };
 
 export class Transport {
   /** Public so callers can build raw URLs against the same server. */
@@ -31,34 +49,6 @@ export class Transport {
     return tok ? `Bearer ${tok}` : undefined;
   }
 
-  /** Perform a plain JSON POST and return the parsed response body. */
-  async post<TBody = unknown, TResponse = unknown>(
-    path: string,
-    body: TBody,
-    options?: { token?: string; signal?: AbortSignal },
-  ): Promise<TResponse> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-    const auth = this.authHeader(options?.token);
-    if (auth) headers["Authorization"] = auth;
-
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: options?.signal,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl POST ${path} → HTTP ${response.status}: ${text}`);
-    }
-
-    return response.json() as Promise<TResponse>;
-  }
-
   /**
    * Send a request and return the raw Response without checking its status,
    * for callers that read status codes, headers or streams themselves.
@@ -68,8 +58,8 @@ export class Transport {
     path: string,
     options?: {
       body?: unknown;
-      /** A multipart body; the content type (with its boundary) is set by `fetch`. */
-      form?: FormData;
+      /** A multipart body (its content type, with the boundary, is set by `fetch`) or a form-encoded one. */
+      form?: FormData | URLSearchParams;
       query?: Record<string, string | number | boolean | undefined>;
       accept?: string;
       token?: string;
@@ -78,6 +68,7 @@ export class Transport {
   ): Promise<Response> {
     const headers: Record<string, string> = { Accept: options?.accept ?? "application/json" };
     if (options?.body !== undefined && !options.form) headers["Content-Type"] = "application/json";
+    if (options?.form instanceof URLSearchParams) headers["Content-Type"] = "application/x-www-form-urlencoded";
     const auth = this.authHeader(options?.token);
     if (auth) headers["Authorization"] = auth;
     const query = new URLSearchParams();
@@ -93,75 +84,48 @@ export class Transport {
     });
   }
 
-  /** Simple GET returning parsed JSON. */
-  async get<TResponse = unknown>(
+  private async checked(
+    method: string,
     path: string,
-    options?: { token?: string; signal?: AbortSignal },
-  ): Promise<TResponse> {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    const auth = this.authHeader(options?.token);
-    if (auth) headers["Authorization"] = auth;
-
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: "GET",
-      headers,
-      signal: options?.signal,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl GET ${path} → HTTP ${response.status}: ${text}`);
-    }
-
-    return response.json() as Promise<TResponse>;
+    options?: Parameters<Transport["request"]>[2],
+  ): Promise<Response> {
+    const response = await this.request(method, path, options);
+    if (!response.ok) throw new TuvlApiError(response.status, await detail(response), path);
+    return response;
   }
 
-  /** Perform a JSON PATCH and return the parsed response body. */
-  async patch<TBody = unknown, TResponse = unknown>(
+  /** Send a request and return the parsed JSON body (`undefined` for 204). Rejects with {@link TuvlApiError}. */
+  async json<T = unknown>(
+    method: string,
     path: string,
-    body: TBody,
-    options?: { token?: string; signal?: AbortSignal },
-  ): Promise<TResponse> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-    const auth = this.authHeader(options?.token);
-    if (auth) headers["Authorization"] = auth;
-
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: "PATCH",
-      headers,
-      body: JSON.stringify(body),
-      signal: options?.signal,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl PATCH ${path} → HTTP ${response.status}: ${text}`);
-    }
-
-    return response.json() as Promise<TResponse>;
+    options?: Parameters<Transport["request"]>[2],
+  ): Promise<T> {
+    const response = await this.checked(method, path, options);
+    return (response.status === 204 ? undefined : await response.json()) as T;
   }
 
-  /** Perform a DELETE request. Expects a 204 No Content response. */
-  async delete(
-    path: string,
-    options?: { token?: string; signal?: AbortSignal },
-  ): Promise<void> {
-    const headers: Record<string, string> = {};
-    const auth = this.authHeader(options?.token);
-    if (auth) headers["Authorization"] = auth;
+  /** JSON GET. */
+  get<TResponse = unknown>(path: string, options?: CallOptions): Promise<TResponse> {
+    return this.json<TResponse>("GET", path, options);
+  }
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: "DELETE",
-      headers,
-      signal: options?.signal,
-    });
+  /** JSON POST. */
+  post<TBody = unknown, TResponse = unknown>(path: string, body: TBody, options?: CallOptions): Promise<TResponse> {
+    return this.json<TResponse>("POST", path, { body, ...options });
+  }
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`tuvl DELETE ${path} → HTTP ${response.status}: ${text}`);
-    }
+  /** JSON PATCH. */
+  patch<TBody = unknown, TResponse = unknown>(path: string, body: TBody, options?: CallOptions): Promise<TResponse> {
+    return this.json<TResponse>("PATCH", path, { body, ...options });
+  }
+
+  /** Send a request and discard the response body. Rejects with {@link TuvlApiError}. */
+  async send(method: string, path: string, options?: Parameters<Transport["request"]>[2]): Promise<void> {
+    await this.checked(method, path, options);
+  }
+
+  /** DELETE; the response body, if any, is ignored. */
+  delete(path: string, options?: CallOptions): Promise<void> {
+    return this.send("DELETE", path, options);
   }
 }

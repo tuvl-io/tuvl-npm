@@ -2,11 +2,11 @@
 
 ## Supported Versions
 
-Security updates are provided for the latest release of the TUVL engine. Please ensure you stay up to date.
+Security updates are provided for the latest `2.x` release of `@tuvl/client`. Please ensure you stay up to date.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| v2026.x | :white_check_mark: |
+| 2.x     | :white_check_mark: |
 | older   | :x:                |
 
 ## Reporting a Vulnerability

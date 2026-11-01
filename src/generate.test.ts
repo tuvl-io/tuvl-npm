@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import doc from "./__fixtures__/openapi.json";
-import { generate, tsType, type OpenApiDocument } from "./generate";
+import { countWorkflows, generate, tsType, type OpenApiDocument } from "./generate";
 
 describe("tsType", () => {
   it("maps the JSON Schema tuvl emits", () => {
@@ -63,3 +63,49 @@ describe("file inputs", () => {
     expect(out).toContain("note?: string;");
   });
 });
+
+describe("the schema corners", () => {
+  it("joins oneOf like anyOf and de-duplicates", () => {
+    expect(tsType({ oneOf: [{ type: "string" }, { type: "number" }, { type: "string" }] })).toBe("string | number");
+  });
+
+  it("does not follow a $ref it cannot resolve", () => {
+    expect(tsType({ $ref: "#/components/schemas/Thing" } as never)).toBe("unknown");
+  });
+
+  it("types an open object as a record", () => {
+    expect(tsType({ type: "object", additionalProperties: true })).toBe("Record<string, unknown>");
+  });
+
+  it("merges path and query parameters into the input", () => {
+    const out = generate({
+      paths: {
+        "/t/{id}": {
+          post: {
+            "x-tuvl-workflow": "lookup",
+            parameters: [
+              { name: "id", in: "path", required: true, schema: { type: "string" } },
+              { name: "verbose", in: "query", schema: { type: "boolean" } },
+              { name: "x-trace", in: "header", schema: { type: "string" } },
+            ],
+            responses: { "200": { description: "END" } },
+          },
+        },
+      },
+    });
+    expect(out).toContain("id: string;");
+    expect(out).toContain("verbose?: boolean;");
+    expect(out).not.toContain("x-trace");
+  });
+
+  it("an empty document types no workflows", () => {
+    expect(countWorkflows({})).toBe(0);
+    expect(countWorkflows({ paths: {} })).toBe(0);
+    expect(generate({ paths: {} })).toContain("export type Workflows = {\n};");
+  });
+
+  it("counts only operations that carry x-tuvl-workflow", () => {
+    expect(countWorkflows(doc as OpenApiDocument)).toBe(1);
+  });
+});
+

@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Transport } from "./transport";
+import { TuvlApiError } from "./types";
 
 // Vitest provides globalThis.fetch; we spy on it per-test.
 const mockFetch = vi.fn<typeof fetch>();
@@ -127,6 +128,50 @@ describe("Transport", () => {
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer new");
+    });
+  });
+
+  describe("json()", () => {
+    it("rejects with a TuvlApiError carrying the status, the server's detail and the path", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ detail: [{ loc: ["body", "x"], msg: "required" }] }, 422));
+      const t = new Transport({ baseUrl: "http://srv" });
+      const error = await t.json("POST", "/items", { body: {} }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(TuvlApiError);
+      expect(error).toMatchObject({ status: 422, path: "/items", detail: [{ loc: ["body", "x"], msg: "required" }] });
+    });
+
+    it("keeps the text of a body that is not JSON", async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(502, "Bad Gateway"));
+      const t = new Transport({ baseUrl: "http://srv" });
+      await expect(t.get("/x")).rejects.toMatchObject({ status: 502, detail: "Bad Gateway" });
+    });
+
+    it("keeps the whole body when it has no detail", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ error: "nope" }, 400));
+      const t = new Transport({ baseUrl: "http://srv" });
+      await expect(t.patch("/x", {})).rejects.toMatchObject({ detail: { error: "nope" } });
+    });
+
+    it("resolves undefined for a 204", async () => {
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      const t = new Transport({ baseUrl: "http://srv" });
+      await expect(t.json("POST", "/x")).resolves.toBeUndefined();
+    });
+
+    it("rejects delete() with a TuvlApiError", async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(404, "gone"));
+      const t = new Transport({ baseUrl: "http://srv" });
+      await expect(t.delete("/x/1")).rejects.toBeInstanceOf(TuvlApiError);
+    });
+  });
+
+  describe("request() with a form-encoded body", () => {
+    it("sets the form content type for URLSearchParams", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({}));
+      const t = new Transport({ baseUrl: "http://srv" });
+      await t.request("POST", "/auth/token", { form: new URLSearchParams({ a: "b" }) });
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/x-www-form-urlencoded");
     });
   });
 });

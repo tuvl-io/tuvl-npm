@@ -21,7 +21,7 @@ type Workflows = {
 describe.skipIf(!url)("live server", () => {
   const client = new TuvlClient<Workflows>({ baseUrl: url ?? "", token });
 
-  it.skipIf(!token || token.split(".").length !== 3)("reads the token's claims as the server sees them", async () => {
+  it.skipIf(token?.split(".").length !== 3)("reads the token's claims as the server sees them", async () => {
     const me = await new TuvlAuth({ baseUrl: url ?? "" }).getMe(token ?? "");
     const claims = readToken(token ?? "");
     expect(claims.iss).toBe("tuvl");
@@ -51,7 +51,7 @@ describe.skipIf(!url)("live server", () => {
     expect(run.run?.status).toBe("waiting_human");
     const approval = (await client.approvals.list()).find((a) => a.run_id === run.id);
     expect(approval?.kind).toBe("human");
-    await client.approvals.decide(approval!.approval_id, { values: { approved: true } });
+    await client.approvals.decide(approval?.approval_id ?? "", { values: { approved: true } });
     expect(await run.wait({ intervalMs: 200, timeoutMs: 15_000 })).toEqual({ amount: 500, lane: "review" });
     const types: string[] = [];
     for await (const event of run.events({ follow: false })) types.push((event as RunEvent).type);

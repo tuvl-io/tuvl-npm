@@ -181,6 +181,8 @@ export interface WorkflowContract {
   input: Record<string, unknown>;
   /** The body of the default end. */
   output: unknown;
+  /** The body of every end, by HTTP status. */
+  ends?: Record<number, unknown>;
 }
 
 /** Workflow name → contract. Generated from `/openapi.json`; untyped by default. */

@@ -19,7 +19,7 @@ export { isTokenEvent } from "./types";
 export { TuvlAuth } from "./auth";
 export { readToken, tokenExpiresAt, isTokenExpired } from "./token";
 export type { TokenClaims } from "./token";
-export type { TuvlAuthOptions, BootstrapRequest } from "./auth";
+export type { AuthCallOptions, TuvlAuthOptions, BootstrapRequest } from "./auth";
 export { CrudClient } from "./crud";
 export { WebhookError, verifyWebhook, webhookHandler } from "./webhooks";
 export type {
