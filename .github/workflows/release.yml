@@ -1,14 +1,10 @@
 name: Release to npm
 
+# Pushing a tag vX.Y.Z (or vX.Y.Z-beta.N) that is on main publishes @tuvl/client at that version.
 on:
   push:
     tags:
       - "v*.*.*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to publish (must match a git tag, e.g. v1.2.3)"
-        required: true
 
 concurrency:
   group: npm-release-${{ github.ref }}
@@ -17,32 +13,36 @@ concurrency:
 jobs:
   publish:
     name: Build & publish @tuvl/client
-    runs-on: ubuntu-latest
+    # A private repository may use the self-hosted runner in CI_RUNS_ON; a public one never does,
+    # because a fork's pull request would run its code there.
+    runs-on: ${{ github.event.repository.private && fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') || 'ubuntu-latest' }}
 
     permissions:
       contents: read
+      id-token: write # npm provenance
 
     steps:
-      # ── Checkout ──────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Fetch full history so the tag is present for version checks
-          fetch-depth: 0
+          fetch-depth: 0 # the tag must be checked against main
 
-      # ── Stamp version from tag ────────────────────────────────────────
-      - name: Stamp version from tag
+      - name: Tag must be on main
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main; merge the change to main and tag it there"
+            exit 1
           fi
-          TAG_VERSION="${TAG#v}"
-          echo "Stamping version: $TAG_VERSION"
-          npm pkg set version="$TAG_VERSION"
 
-      # ── Node.js + pnpm ────────────────────────────────────────────────
+      - name: Tag must match package.json
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [[ "${GITHUB_REF_NAME#v}" != "$PKG_VERSION" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -55,33 +55,37 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: "pnpm"
 
-      # ── Install ───────────────────────────────────────────────────────
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # ── Quality gates ─────────────────────────────────────────────────
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
 
       - name: Test
         run: pnpm test
 
-      # ── Build ─────────────────────────────────────────────────────────
       - name: Build
         run: pnpm build
 
-      # ── Publish ───────────────────────────────────────────────────────
-      # Use `npm publish` (not pnpm) so that actions/setup-node's .npmrc auth
-      # token is used directly — pnpm proxies through npm but does not forward
-      # NODE_AUTH_TOKEN, which causes E404 on scoped packages.
-      # Note: --provenance is omitted — npm provenance requires a public repo.
+      # `npm publish`, not pnpm: setup-node's .npmrc token is used directly (pnpm does not
+      # forward NODE_AUTH_TOKEN, which causes E404 on scoped packages).
+      # Provenance needs a public repository on a GitHub-hosted runner; a private one publishes without.
       - name: Publish to npm
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          if [[ "$PKG_VERSION" == *"-beta."* || "$PKG_VERSION" == *"-alpha."* || "$PKG_VERSION" == *"-rc."* ]]; then
-            npm publish --access public --no-provenance --tag beta
-          else
-            npm publish --access public --no-provenance
+          VERSION=$(node -p "require('./package.json').version")
+          ARGS=(--access public)
+          if [[ "$VERSION" == *-* ]]; then
+            PRE="${VERSION#*-}"
+            ARGS+=(--tag "${PRE%%.*}") # 2.1.0-beta.3 -> beta
           fi
+          if [[ "${{ github.event.repository.private }}" == "true" ]]; then
+            ARGS+=(--no-provenance)
+          else
+            ARGS+=(--provenance)
+          fi
+          npm publish "${ARGS[@]}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

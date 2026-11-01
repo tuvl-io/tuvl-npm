@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [develop]
+    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -12,7 +12,9 @@ concurrency:
 jobs:
   check:
     name: Typecheck, test, build (Node ${{ matrix.node }})
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    # A private repository may use the self-hosted runner in CI_RUNS_ON; a public one never does,
+    # because a fork's pull request would run its code there.
+    runs-on: ${{ github.event.repository.private && fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -36,3 +38,40 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+
+  # all work lands on develop; main only receives a release from it
+  branch-flow:
+    name: main takes pull requests from develop only
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ${{ github.event.repository.private && fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') || 'ubuntu-latest' }}
+    permissions: {}
+    steps:
+      - name: Check the head branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [[ "$HEAD_REF" != "develop" || "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]]; then
+            echo "::error::main only takes pull requests from develop; open this one against develop"
+            exit 1
+          fi
+
+  # a push to main must be a release merged from develop (rules can block the rest once the repo is public)
+  main-from-develop:
+    name: main only contains develop
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.event.repository.private && fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the pushed commit came from develop
+        run: |
+          git fetch --no-tags origin develop
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/develop; then exit 0; fi # fast-forward from develop
+          SECOND=$(git rev-parse --verify --quiet "$GITHUB_SHA^2" || true) # merge commit of develop
+          if [[ -n "$SECOND" ]] && git merge-base --is-ancestor "$SECOND" origin/develop; then exit 0; fi
+          echo "::error::$GITHUB_SHA was pushed to main without coming from develop"
+          exit 1
