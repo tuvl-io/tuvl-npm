@@ -55,3 +55,23 @@ jobs:
             echo "::error::main only takes pull requests from develop; open this one against develop"
             exit 1
           fi
+
+  # a push to main must be a release merged from develop (rules can block the rest once the repo is public)
+  main-from-develop:
+    name: main only contains develop
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.event.repository.private && fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the pushed commit came from develop
+        run: |
+          git fetch --no-tags origin develop
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/develop; then exit 0; fi # fast-forward from develop
+          SECOND=$(git rev-parse --verify --quiet "$GITHUB_SHA^2" || true) # merge commit of develop
+          if [[ -n "$SECOND" ]] && git merge-base --is-ancestor "$SECOND" origin/develop; then exit 0; fi
+          echo "::error::$GITHUB_SHA was pushed to main without coming from develop"
+          exit 1
