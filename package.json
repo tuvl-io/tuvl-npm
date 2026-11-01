@@ -37,6 +37,9 @@
   },
   "author": "tuvl.io <developer@tuvl.io>",
   "homepage": "https://tuvl.io",
+  "bugs": {
+    "url": "https://github.com/tuvl-io/tuvl-npm/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tuvl-io/tuvl-npm.git"
