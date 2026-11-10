@@ -22,7 +22,7 @@ npm install @tuvl/client
 pnpm add @tuvl/client
 ```
 
-It needs Node.js 18 or newer (or a browser, Deno, Bun or an edge runtime) and has no runtime dependencies. It talks to a
+It runs on Node.js 18 or newer (or a browser, Deno, Bun or an edge runtime) and has no runtime dependencies. CI tests Node.js 22, 24 and 26; older runtimes are not tested. It talks to a
 tuvl `2.0` server, which you install with `uv tool install "tuvl[standard]"` ([install guide](https://tuvl.dev/getting-started/installation/)).
 
 ---
