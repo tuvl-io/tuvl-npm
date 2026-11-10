@@ -6,6 +6,7 @@ describe("public exports", () => {
     expect(Object.keys(api).sort()).toEqual(
       [
         "CrudClient",
+        "RolesClient",
         "RunHandle",
         "TERMINAL_STATUSES",
         "Transport",

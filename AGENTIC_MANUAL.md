@@ -34,7 +34,8 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 | `runs.webhooks(runId)` / `redeliverWebhook` | a run's webhook notifications; send one again |
 | `verifyWebhook(rawBody, signatureHeader, secrets)` / `webhookHandler({ secrets, onNotification })` / `WebhookError` | receive and verify `spec.webhooks` notifications |
 | `RunHandle.get / events / wait({ intervalMs?, timeoutMs?, untilWaiting? }) / pause / resume / abort / steer(message)` | per run |
-| `TuvlAuth` | `/auth/*`: `loginWithPassword`, `bootstrap`, `getOAuthLoginUrl`, `refresh`, `getMe`, `logout` |
+| `TuvlAuth` | `/auth/*`: `loginWithPassword`, `bootstrap` (dev server only), `getOAuthLoginUrl`, `refresh`, `getMe`, `logout` |
+| `roles()` → `RolesClient` | role membership, tuvl >= 2.1.0b2 with `roles` exposed and `roles:manage`: `isAvailable()` / `list()` / `members(roleId, { limit?, cursor? })` / `findUsers({ q?, limit?, cursor? })` / `addUser(roleId, userId)` / `removeUser(roleId, userId)` / `setActive(roleId, active)` / `disable` / `enable`. Creating roles, scopes and users are not wrapped: they are development-time (`RoleSeed`, `tuvl iam`) |
 
 ## 3. Outcomes
 
@@ -44,7 +45,7 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 | run waits (`waiting_human`, `waiting_approval`, `paused`) or is still running after `sync_timeout` | `execute` resolves a `RunHandle` |
 | end with status ≥ 400, failed, aborted, compensated | rejects `TuvlRunError { status, body, runId }` |
 | 401 / 403 / 404 / 422 input | rejects `TuvlApiError { status, detail }` (`detail` is the server's `detail`, e.g. a list of `{ loc, msg }`) |
-| any refused request from `crud(...)` or `TuvlAuth` (login, refresh, logout, `getMe`, `bootstrap`) | the same `TuvlApiError { status, detail, path }`; their helpers take `{ signal }` to cancel |
+| any refused request from `crud(...)`, `roles()` or `TuvlAuth` (login, refresh, logout, `getMe`, `bootstrap`) | the same `TuvlApiError { status, detail, path }`; their helpers take `{ signal }` to cancel |
 
 ## 4. Scopes
 

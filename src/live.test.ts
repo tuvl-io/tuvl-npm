@@ -62,3 +62,48 @@ describe.skipIf(!url)("live server", () => {
     await expect(client.execute("approve_amount", { amount: "x" as unknown as number })).rejects.toMatchObject({ status: 422 });
   });
 });
+
+/**
+ * Role membership against a server that mounts the `roles` group (tuvl >= 2.1.0b2, `roles` in `spec.api.expose`).
+ * TUVL_LIVE_MANAGER_TOKEN needs `roles:manage`; TUVL_LIVE_ROLE names a role the manager may change
+ * (default `reviewers`) and TUVL_LIVE_USER a user who does not hold it yet (default `bob@example.com`).
+ * The test restores what it changes.
+ */
+const managerToken = process.env.TUVL_LIVE_MANAGER_TOKEN;
+
+describe.skipIf(!url || !managerToken)("live server: role management", () => {
+  const roleName = process.env.TUVL_LIVE_ROLE ?? "reviewers";
+  const email = process.env.TUVL_LIVE_USER ?? "bob@example.com";
+  const roles = new TuvlClient({ baseUrl: url ?? "", token: managerToken }).roles();
+
+  it("lists roles, adds and removes a member, and disables and re-enables the role", async () => {
+    expect(await roles.isAvailable()).toBe(true);
+    const role = (await roles.list()).find((r) => r.name === roleName);
+    expect(role).toBeDefined();
+    const roleId = role?.id ?? "";
+
+    const user = (await roles.findUsers({ q: email })).items.find((u) => u.email === email);
+    expect(user).toBeDefined();
+    const userId = user?.id ?? "";
+
+    await roles.addUser(roleId, userId);
+    await roles.addUser(roleId, userId); // idempotent
+    try {
+      expect((await roles.members(roleId)).items.map((m) => m.email)).toContain(email);
+      expect((await roles.disable(roleId)).is_active).toBe(false);
+      expect((await roles.enable(roleId)).is_active).toBe(true);
+    } finally {
+      await roles.removeUser(roleId, userId);
+    }
+    expect((await roles.members(roleId)).items.map((m) => m.email)).not.toContain(email);
+    await expect(roles.removeUser(roleId, userId)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("refuses a role that carries more than the manager holds", async () => {
+    const all = await roles.list();
+    const protectedRole = all.find((r) => r.scopes.includes("iam:admin"));
+    const someone = (await roles.findUsers({ limit: 1 })).items[0];
+    if (!protectedRole || !someone) return;
+    await expect(roles.addUser(protectedRole.id, someone.id)).rejects.toMatchObject({ status: 403 });
+  });
+});

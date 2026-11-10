@@ -5,7 +5,8 @@
 [![License](https://img.shields.io/npm/l/@tuvl/client)](LICENSE)
 
 > `@tuvl/client` 2.x targets engine `tuvl >= 2.0`: REST + Server-Sent Events
-> only. Breaking changes bump the major version ([SemVer](https://semver.org)).
+> only. Role management (`client.roles()`) needs `tuvl >= 2.1.0b2`.
+> Breaking changes bump the major version ([SemVer](https://semver.org)).
 
 TypeScript client for the [tuvl](https://tuvl.io) workflow engine: start workflow
 runs, follow their journal over SSE, operate them, decide approvals, and use
@@ -190,7 +191,7 @@ is one of `run_queued`, `run_started`, `agent_started`, `agent_completed`,
 
 ## Authentication
 
-The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path }`, the same as every other call. Admin endpoints (user / role / scope CRUD, federation config) are intentionally not wrapped; call them directly with `fetch` or the lower-level `Transport` using the same Bearer token.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path }`, the same as every other call. Role membership (list roles, add or remove a member, disable a role) is in [`client.roles()`](#role-management). The rest of the admin API (user and role CRUD, scopes, federation config) is development-time work, done with `tuvl iam` and the project's YAML, and is intentionally not wrapped.
 
 ### `new TuvlAuth(options)`
 
@@ -216,6 +217,8 @@ const { access_token } = await auth.bootstrap({
   admin_scope: "iam:admin",
 });
 ```
+
+Only a server that mounts the `iam` API group answers this: the dev server, or one with `iam` in `spec.api.expose`. A production server (`tuvl >= 2.1`) does not, and replies 404. Create its first administrator with `TUVL_BOOTSTRAP_ADMIN_EMAIL` / `TUVL_BOOTSTRAP_ADMIN_PASSWORD` or `tuvl iam`.
 
 ### OAuth2 login (browser)
 
@@ -279,6 +282,45 @@ client.setToken(newToken); // update the workflow client in-place
 await auth.logout(token);
 // delete token from localStorage / state after this
 ```
+
+---
+
+## Role management
+
+`client.roles()` is what an application's own screen needs to let someone decide who holds which role, and nothing more: list the roles, find users, add a user to a role, remove one, disable or re-enable a role. Creating roles, changing what a role grants, adding a permission to an endpoint and creating users are development-time work (`RoleSeed`, `tuvl iam`), so there is no call for them.
+
+```ts
+const roles = client.roles();
+
+if (await roles.isAvailable()) {
+  const all = await roles.list();                       // name, is_active, scopes (read-only), member_count
+  const reviewers = all.find((r) => r.name === "reviewers")!;
+
+  const { items, next_cursor } = await roles.findUsers({ q: "alice", limit: 10 });
+  await roles.addUser(reviewers.id, items[0].id);       // adding twice is harmless
+  const members = await roles.members(reviewers.id);    // { items, next_cursor }
+  await roles.removeUser(reviewers.id, items[0].id);    // 404 if they were not a member
+
+  await roles.disable(reviewers.id);                    // grants nothing; members keep the role, their sessions end
+  await roles.enable(reviewers.id);
+}
+```
+
+| Call | Request |
+|---|---|
+| `list()` | `GET /auth/roles` |
+| `members(roleId, { limit?, cursor? })` | `GET /auth/roles/{id}/members` |
+| `findUsers({ q?, limit?, cursor? })` | `GET /auth/roles/candidates` |
+| `addUser(roleId, userId)` | `PUT /auth/roles/{id}/members/{user_id}` |
+| `removeUser(roleId, userId)` | `DELETE /auth/roles/{id}/members/{user_id}` |
+| `setActive(roleId, active)`, `disable`, `enable` | `PATCH /auth/roles/{id}` |
+| `isAvailable()` | `GET /auth/roles`: `true` unless the server answers 404 |
+
+Pages are ordered by email; pass a page's `next_cursor` as `cursor` for the next, and stop when it is `null`. Every call takes `{ token, signal }` like the rest of the client.
+
+**Server side.** The `roles` API group is **not mounted on a production server** until the operator turns it on (`spec.api.expose: [auth, roles]` or `TUVL_API_EXPOSE=auth,roles`), so `isAvailable()` is `false` there by default. The token needs the `roles:manage` scope (`iam:admin` also passes). A caller without `iam:admin` can change a role only if every scope it grants is one they hold themselves, and never a role carrying `iam:admin` or `roles:manage`: the server answers `403` and says why. Removing or disabling the last administrator is refused with `409`.
+
+**Keep the token small.** A manager token can change who has access to what. Use a short-lived token, put the role screen in a part of your app that only managers reach, and do not reuse that token elsewhere. See [Role management](https://tuvl.dev/security/iam/) in the tuvl docs.
 
 ---
 
