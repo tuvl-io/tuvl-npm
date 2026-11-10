@@ -54,7 +54,7 @@ describe("CrudClient", () => {
       expect(result).toEqual([]);
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("http://srv/models/candidate/");
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
     });
 
     it("adds limit and offset query params", async () => {
@@ -88,7 +88,7 @@ describe("CrudClient", () => {
       await makeCrud().list({ token: "other-tok" });
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer other-tok");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer other-tok");
     });
 
     it("returns the parsed array", async () => {
@@ -217,7 +217,7 @@ describe("TuvlClient.crud()", () => {
     await client.crud("candidate").list();
 
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer shared-tok");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer shared-tok");
   });
 
   it("per-call token overrides the client-level token", async () => {
@@ -226,6 +226,6 @@ describe("TuvlClient.crud()", () => {
     await client.crud("candidate").list({ token: "override" });
 
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer override");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer override");
   });
 });
