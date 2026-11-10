@@ -40,7 +40,7 @@ describe("RolesClient", () => {
     const result = await new TuvlClient({ baseUrl: "http://srv", token: "abc" }).roles().list();
     expect(result).toEqual([role]);
     expect(lastCall().url).toBe("http://srv/auth/roles");
-    expect(lastCall().headers["Authorization"]).toBe("Bearer abc");
+    expect(lastCall().headers.Authorization).toBe("Bearer abc");
   });
 
   it("list() reads /auth/roles", async () => {
@@ -108,7 +108,7 @@ describe("RolesClient", () => {
     mockFetch.mockResolvedValueOnce(json([]));
     const controller = new AbortController();
     await roles().list({ token: "other", signal: controller.signal });
-    expect(lastCall().headers["Authorization"]).toBe("Bearer other");
+    expect(lastCall().headers.Authorization).toBe("Bearer other");
     expect(lastCall().init.signal).toBe(controller.signal);
   });
 

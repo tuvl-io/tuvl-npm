@@ -66,7 +66,7 @@ describe("live drafts", () => {
 
 describe("parseSseStream", () => {
   it("yields run events across chunk boundaries and skips keep-alives", async () => {
-    const text = frame(event(1, "run_started")) + ": keep-alive\n\n" + frame(event(2, "agent_started"));
+    const text = `${frame(event(1, "run_started"))}: keep-alive\n\n${frame(event(2, "agent_started"))}`;
     const events = await collect(stream(text.slice(0, 30), text.slice(30, 95), text.slice(95)));
     expect(events.map((e) => [e.seq, e.type, e.agent_id])).toEqual([
       [1, "run_started", null],
@@ -139,3 +139,19 @@ describe("frames that are not events", () => {
   });
 });
 
+
+describe("parseSseStream and an abort", () => {
+  it("stops reading at once when the signal aborts, without waiting for the next chunk", async () => {
+    // a stream that never sends anything: only the abort can end the read
+    const idle = new Response(new ReadableStream<Uint8Array>({ start() {} }));
+    const controller = new AbortController();
+    const seen: unknown[] = [];
+    const reading = (async () => {
+      for await (const e of parseSseStream(idle, controller.signal)) seen.push(e);
+    })();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    await expect(reading).resolves.toBeUndefined();
+    expect(seen).toEqual([]);
+  });
+});

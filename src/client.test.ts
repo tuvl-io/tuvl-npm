@@ -312,3 +312,49 @@ describe("the rest of the surface", () => {
   });
 });
 
+
+describe("edges of the client", () => {
+  it("baseUrl is the server's address without a trailing slash", () => {
+    expect(client().baseUrl).toBe("http://srv");
+  });
+
+  it("execute() maps a refusal that carries no run to TuvlApiError, with the server's reason", async () => {
+    mockFetch.mockResolvedValueOnce(json({ detail: "Not authenticated" }, 401));
+    await expect(client().execute("greet", { name: "x" })).rejects.toMatchObject({
+      name: "TuvlApiError",
+      status: 401,
+      detail: "Not authenticated",
+    });
+  });
+
+  it("start() refuses an answer that finished the run instead of starting it", async () => {
+    mockFetch.mockResolvedValueOnce(json({ text: "done" }, 200, { "x-tuvl-run-id": "r1" }));
+    await expect(client().start("greet", { name: "x" })).rejects.toThrow("finished a run started without waiting");
+  });
+
+  it("onToken() ends when the caller's signal aborts while the stream is open", async () => {
+    mockFetch.mockImplementationOnce(async (_url, init) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.close());
+        },
+      });
+      return new Response(body);
+    });
+    const parent = new AbortController();
+    const live = client().run("r1").onToken(() => undefined, { signal: parent.signal });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    parent.abort();
+    await expect(live.done).resolves.toBeUndefined();
+  });
+
+  it("reads a run's webhook deliveries and sends one again", async () => {
+    mockFetch.mockResolvedValueOnce(json([{ id: "d1", status: "failed" }]));
+    expect(await client().runs.webhooks("r 1")).toEqual([{ id: "d1", status: "failed" }]);
+    expect(call(0).url).toBe("http://srv/api/runs/r%201/webhooks");
+    mockFetch.mockResolvedValueOnce(json({ id: "d1", status: "queued" }));
+    await client().runs.redeliverWebhook("r1", "d/1");
+    expect(call(1).url).toBe("http://srv/api/runs/r1/webhooks/d%2F1/redeliver");
+    expect(call(1).init.method).toBe("POST");
+  });
+});

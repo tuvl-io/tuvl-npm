@@ -41,7 +41,7 @@ describe("TuvlAuth", () => {
       expect(result).toEqual(me);
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("http://srv/auth/me");
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
     });
 
     it("throws on HTTP error", async () => {
@@ -123,7 +123,7 @@ describe("TuvlAuth", () => {
       expect(result).toEqual(newToken);
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("http://srv/auth/refresh");
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer old-tok");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer old-tok");
     });
 
     it("throws on HTTP error", async () => {

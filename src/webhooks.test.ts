@@ -56,6 +56,13 @@ describe("verifyWebhook", () => {
     await expect(verify(both, ["z".repeat(40)])).rejects.toMatchObject({ reason: "signature" });
   });
 
+  it("refuses a genuinely signed body that is not JSON, or JSON that is not an object", async () => {
+    for (const odd of ["not json at all", "null", "123", '"text"']) {
+      const h = `t=${T},v1=${mac(SECRET, T, odd)}`;
+      await expect(verifyWebhook(odd, h, SECRET, { now: T })).rejects.toMatchObject({ reason: "malformed" });
+    }
+  });
+
   it("refuses a body that is genuine but not a tuvl notification", async () => {
     const odd = '{"hello":"world"}';
     const h = `t=${T},v1=${mac(SECRET, T, odd)}`;

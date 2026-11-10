@@ -6,8 +6,23 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      # one pull request for the routine bumps instead of one per package
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # the typings follow the oldest Node line CI covers (22), not the newest
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7 ships no compiler API, which tsup's declaration build needs
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
