@@ -56,7 +56,7 @@ export function tsType(schema: Schema | undefined, indent = ""): string {
       const props = Object.entries(schema.properties ?? {});
       if (props.length === 0) return schema.type === "object" ? "Record<string, unknown>" : "unknown";
       const required = new Set(schema.required ?? []);
-      const inner = indent + "  ";
+      const inner = `${indent}  `;
       const lines = props.map(([name, prop]) => {
         const doc = prop.description ? `${inner}/** ${prop.description.replace(/\*\//g, "* /")} */\n` : "";
         return `${doc}${inner}${key(name)}${required.has(name) ? "" : "?"}: ${tsType(prop, inner)};`;

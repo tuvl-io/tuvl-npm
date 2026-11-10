@@ -46,7 +46,7 @@ describe("Transport", () => {
 
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("http://srv/api/run");
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     });
 
@@ -56,7 +56,7 @@ describe("Transport", () => {
       await t.post("/path", {}, { token: "override" });
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer override");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer override");
     });
 
     it("omits Authorization header when no token is set", async () => {
@@ -65,7 +65,7 @@ describe("Transport", () => {
       await t.post("/path", {});
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((init.headers as Record<string, string>)["Authorization"]).toBeUndefined();
+      expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
     });
 
     it("throws on non-OK HTTP status", async () => {
@@ -104,7 +104,7 @@ describe("Transport", () => {
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("http://srv/x?wait=false");
       expect(init.body).toBe('{"a":1}');
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer t");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     });
 
@@ -114,7 +114,7 @@ describe("Transport", () => {
       await t.request("GET", "/runs", { accept: "text/event-stream" });
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(init.body).toBeUndefined();
-      expect((init.headers as Record<string, string>)["Accept"]).toBe("text/event-stream");
+      expect((init.headers as Record<string, string>).Accept).toBe("text/event-stream");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
     });
   });
@@ -127,7 +127,7 @@ describe("Transport", () => {
       await t.post("/path", {});
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer new");
+      expect((init.headers as Record<string, string>).Authorization).toBe("Bearer new");
     });
   });
 

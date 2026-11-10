@@ -10,6 +10,7 @@ describe("tsType", () => {
     expect(tsType({ type: "array", items: { type: "integer" } })).toBe("Array<number>");
     expect(tsType({ type: "object" })).toBe("Record<string, unknown>");
     expect(tsType({})).toBe("unknown");
+    expect(tsType({ type: "something-new" } as never)).toBe("unknown");
     expect(tsType({ type: "object", properties: { "a-b": { type: "boolean" }, c: { type: "number" } }, required: ["c"] })).toBe(
       '{\n  "a-b"?: boolean;\n  c: number;\n}',
     );
@@ -109,3 +110,27 @@ describe("the schema corners", () => {
   });
 });
 
+
+describe("generate: choosing the default end", () => {
+  const op = (responses: Record<string, unknown>) =>
+    ({
+      openapi: "3.1.0",
+      paths: {
+        "/api/workflows/w/runs": {
+          post: { "x-tuvl-workflow": "w", responses },
+        },
+      },
+    }) as unknown as OpenApiDocument;
+  const body = (key: string) => ({ content: { "application/json": { schema: { type: "object", properties: { [key]: { type: "string" } }, required: [key] } } } });
+
+  it("takes the end described as END, else the lowest 2xx", () => {
+    const described = generate(op({ "200": { description: "other", ...body("a") }, "201": { description: "END", ...body("b") } }));
+    expect(described).toMatch(/output: \{\n\s+b: string;/);
+    const lowest = generate(op({ "201": { description: "x", ...body("b") }, "200": { description: "y", ...body("a") } }));
+    expect(lowest).toMatch(/output: \{\n\s+a: string;/);
+  });
+
+  it("has no output when no end succeeds", () => {
+    expect(generate(op({ "404": { description: "gone", ...body("a") } }))).toContain("output: undefined;");
+  });
+});

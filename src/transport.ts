@@ -70,7 +70,7 @@ export class Transport {
     if (options?.body !== undefined && !options.form) headers["Content-Type"] = "application/json";
     if (options?.form instanceof URLSearchParams) headers["Content-Type"] = "application/x-www-form-urlencoded";
     const auth = this.authHeader(options?.token);
-    if (auth) headers["Authorization"] = auth;
+    if (auth) headers.Authorization = auth;
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(options?.query ?? {})) {
       if (value !== undefined) query.set(key, String(value));
