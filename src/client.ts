@@ -4,6 +4,7 @@
  */
 
 import { CrudClient } from "./crud";
+import { RolesClient } from "./roles";
 import { toFormData } from "./form";
 import { parseSseEvents, parseSseStream } from "./sse";
 import { Transport, detail } from "./transport";
@@ -301,6 +302,15 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
     decide: (approvalId: string, decision: ApprovalDecision, options?: RequestOptions): Promise<Record<string, unknown>> =>
       this.transport.json("POST", `/api/approvals/${encodeURIComponent(approvalId)}`, { body: decision, ...options }),
   };
+
+  /**
+   * Role membership: list roles, find users, add or remove a member, disable or enable a role.
+   * Needs a server that mounts the `roles` API group (tuvl >= 2.1.0b2, `roles` in `spec.api.expose`)
+   * and a token with `roles:manage`. See {@link RolesClient}.
+   */
+  roles(): RolesClient {
+    return new RolesClient(this.transport);
+  }
 
   /** CRUD on a model exposed with `spec.api.crud`. */
   crud<TRead = unknown, TCreate = Partial<TRead>, TUpdate = Partial<TRead>>(
