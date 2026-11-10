@@ -1,6 +1,6 @@
 {
   "name": "@tuvl/client",
-  "version": "2.1.0-beta.1",
+  "version": "2.1.0-beta.2",
   "description": "TypeScript client for tuvl 2.0: start workflow runs, follow their journal over SSE, decide approvals, and generate typed workflow contracts from OpenAPI.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -68,6 +68,6 @@
     "vitest": "^4.1.12"
   },
   "bin": {
-    "tuvl-client": "./dist/cli.js"
+    "tuvl-client": "dist/cli.js"
   }
 }
