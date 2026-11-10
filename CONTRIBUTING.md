@@ -4,8 +4,9 @@ Thank you for your interest in `@tuvl/client`, the TypeScript client for the [tu
 
 ## Setup
 
-Developing needs Node.js 20 or newer (the test runner requires it) and [pnpm](https://pnpm.io) 10. The published
-package itself supports Node.js 18 and newer.
+Developing needs Node.js 22 or newer and [pnpm](https://pnpm.io) 10. CI runs the supported LTS lines (22, 24, 26). The
+published package has no runtime dependencies and is built for Node.js 18 and newer; older runtimes than the CI ones are
+not tested.
 
 ```bash
 git clone https://github.com/tuvl-io/tuvl-npm.git
