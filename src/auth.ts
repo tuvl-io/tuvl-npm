@@ -7,8 +7,10 @@
  *
  * A refused request rejects with {@link TuvlApiError}, as everywhere else in the client.
  *
- * Admin endpoints (user/role/scope CRUD, federation config) are NOT wrapped
- * — call them directly via `Transport` or `fetch` with the token.
+ * Role membership (list roles, add or remove a member, disable a role) is in
+ * {@link RolesClient} (`client.roles()`). The rest of the admin API (user and
+ * role CRUD, scopes, federation config) is development-time work, done with
+ * `tuvl iam` and the project's YAML, and is not wrapped.
  */
 
 import { Transport } from "./transport";
@@ -22,6 +24,9 @@ export interface TuvlAuthOptions {
 export interface BootstrapRequest {
   email: string;
   password: string;
+  phone_number?: string;
+  first_name?: string;
+  last_name?: string;
   /** Optional extra scope to grant the superadmin role on creation. */
   admin_scope?: string;
 }
@@ -71,6 +76,10 @@ export class TuvlAuth {
    *
    * Calls `POST /auth/bootstrap`. Returns 409 on every subsequent call
    * once any user exists.
+   *
+   * Only a server that mounts the `iam` API group answers: the dev server, or one with `iam` in
+   * `spec.api.expose`. A production server (tuvl >= 2.1) does not, and replies 404; its first
+   * administrator comes from `TUVL_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` or `tuvl iam`.
    */
   bootstrap(req: BootstrapRequest, options?: AuthCallOptions): Promise<TokenResponse> {
     return this.transport.json<TokenResponse>("POST", "/auth/bootstrap", { body: req, ...options });

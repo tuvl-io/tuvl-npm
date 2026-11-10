@@ -21,6 +21,8 @@ export { readToken, tokenExpiresAt, isTokenExpired } from "./token";
 export type { TokenClaims } from "./token";
 export type { AuthCallOptions, TuvlAuthOptions, BootstrapRequest } from "./auth";
 export { CrudClient } from "./crud";
+export { RolesClient } from "./roles";
+export type { FindUsersOptions, PageOptions } from "./roles";
 export { WebhookError, verifyWebhook, webhookHandler } from "./webhooks";
 export type {
   NotificationType,
@@ -39,7 +41,10 @@ export type {
   CrudListOptions,
   CrudMutateOptions,
   MeResponse,
+  Page,
   RequestOptions,
+  Role,
+  RoleMember,
   Run,
   RunEvent,
   RunEventType,

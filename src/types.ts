@@ -22,6 +22,34 @@ export interface MeResponse {
 }
 
 
+// ── Roles (the `roles` API group, tuvl >= 2.1.0b2) ───────────────────────────
+
+/** A role as `GET /auth/roles` lists it. `scopes` is read-only here; it is set in the project. */
+export interface Role {
+  id: string;
+  name: string;
+  description: string | null;
+  /** A disabled role keeps its members and scopes but grants nothing. */
+  is_active: boolean;
+  scopes: string[];
+  member_count: number;
+}
+
+/** A user as the member and user-picker lists show them: no roles, no permissions. */
+export interface RoleMember {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  is_active: boolean;
+}
+
+/** One page of a list; pass `next_cursor` as `cursor` for the next, `null` on the last. */
+export interface Page<T> {
+  items: T[];
+  next_cursor: string | null;
+}
+
 // ── Runs (spec §15.1) ─────────────────────────────────────────────────────────
 
 export type RunStatus =
