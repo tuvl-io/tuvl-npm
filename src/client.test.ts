@@ -327,6 +327,17 @@ describe("edges of the client", () => {
     });
   });
 
+  it("start() says what came back when the 202 is not JSON", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response("<html>gateway</html>", { status: 202, headers: { "Content-Type": "text/html", "x-tuvl-run-id": "r1" } }),
+    );
+    await expect(client().start("greet", { name: "x" })).rejects.toMatchObject({
+      name: "TuvlApiError",
+      status: 202,
+      path: "/api/workflows/greet/runs",
+    });
+  });
+
   it("start() refuses an answer that finished the run instead of starting it", async () => {
     mockFetch.mockResolvedValueOnce(json({ text: "done" }, 200, { "x-tuvl-run-id": "r1" }));
     await expect(client().start("greet", { name: "x" })).rejects.toThrow("finished a run started without waiting");
