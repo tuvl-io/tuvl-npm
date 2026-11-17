@@ -1,8 +1,8 @@
 # @tuvl/client — Agentic SDK Manual
 
-> **Audience:** AI coding agents generating TypeScript that calls a tuvl 2.0 server.
+> **Audience:** AI coding agents generating TypeScript that calls a tuvl 2.x server (checked against 2.1).
 > **Contract:** `@tuvl/client@2.x`. Never invent methods, options or fields absent here; the README and `AGENTS.md` carry the same contract.
-> **Server side:** the tuvl 2.0 agentic manual (`tuvl` package docs) and `/openapi.json` of the running server.
+> **Server side:** the tuvl 2.x agentic manual (`tuvl` package docs) and `/openapi.json` of the running server.
 
 ## 1. Mental model
 
@@ -47,6 +47,8 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 | 401 / 403 / 404 / 422 input | rejects `TuvlApiError { status, detail }` (`detail` is the server's `detail`, e.g. a list of `{ loc, msg }`); so does a success answer that is not JSON (a proxy's page, a wrong `baseUrl`), with the path and content type |
 | `wait({ timeoutMs })` runs out with the run still going | rejects `TuvlTimeoutError { runId, status, timeoutMs }` |
 | a followed stream (`events()`, `stream()`, `tokens()`) cannot be reopened after a drop (5 attempts) | rejects `TuvlStreamError { runId, lastSeq, cause }`; resume with `events({ fromSeq: lastSeq + 1 })` |
+| 429 on a sign-in | `TuvlApiError { status: 429, retryAfter }`: the seconds to wait; never retry a login in a loop |
+| a run started with no token on a public trigger | `202` with no `status_url`; `get()`/`wait()`/`events()` reject `TuvlApiError` 401 explaining it |
 | any refused request from `crud(...)`, `roles()` or `TuvlAuth` (login, refresh, logout, `getMe`, `bootstrap`) | the same `TuvlApiError { status, detail, path }`; their helpers take `{ signal }` to cancel |
 
 ## 4. Scopes
@@ -54,7 +56,8 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 | Need | Scope |
 |---|---|
 | start a workflow | the workflow's `required_scope` / `required_group` (none for `public: true`) |
-| read your runs | `runs:read` (`iam:admin` reads all) |
+| read your own runs | none (the caller who started a run reads it) |
+| read and list any run of the tenant (a webhook receiver, a dashboard) | `runs:read` (`iam:admin` reads all) |
 | pause / resume / abort / steer | `runs:control` |
 | decide approvals | `approvals:decide` + the agent's `required_group` |
 | CRUD | `{model}:read` / `{model}:write` / `{model}:delete` |

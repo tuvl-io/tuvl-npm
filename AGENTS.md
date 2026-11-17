@@ -1,6 +1,6 @@
 # @tuvl/client Agent Rules
 
-This repository uses the `@tuvl/client` 2.x SDK to talk to a tuvl 2.0 server. As an AI agent working in this codebase, follow these rules.
+This repository uses the `@tuvl/client` 2.x SDK to talk to a tuvl 2.x server (checked against 2.1). As an AI agent working in this codebase, follow these rules.
 
 ## 1. Do Not Invent Methods
 The public API is:

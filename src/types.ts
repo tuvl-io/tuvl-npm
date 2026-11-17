@@ -61,12 +61,13 @@ export type RunStatus =
   | "completed"
   | "failed"
   | "aborted"
+  /** A failed or aborted run is undoing its steps. Not final, and nobody is being waited for: `wait()` keeps polling. */
+  | "compensating"
   | "compensated";
 
 export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "aborted", "compensated"];
 export const WAITING_STATUSES: readonly RunStatus[] = ["waiting_human", "waiting_approval", "paused"];
 
-/** A pending human form or tool-call approval (`GET /api/approvals`). */
 /** One webhook notification of a run (`client.runs.webhooks`). */
 export interface WebhookDelivery {
   id: string;
@@ -82,6 +83,7 @@ export interface WebhookDelivery {
   delivered_at: string | null;
 }
 
+/** A pending human form or tool-call approval (`GET /api/approvals`). */
 export interface Approval {
   approval_id: string;
   run_id: string;
@@ -89,6 +91,8 @@ export interface Approval {
   kind: "human" | "tool" | "pause";
   status: string;
   required_group: string | null;
+  /** Who the approval is for, when it was assigned to someone. */
+  assignee?: string | null;
   expires_at: string | null;
   created_at: string | null;
   decide_url: string;
@@ -115,8 +119,12 @@ export interface Run {
   tokens_used: number;
   created_at: string | null;
   updated_at: string | null;
-  status_url: string;
-  events_url: string;
+  /**
+   * Where to read the run. Absent from the `202` of a run started by an anonymous caller of a public trigger: nobody
+   * could read what these point to (only a token with `iam:admin` can read such a run).
+   */
+  status_url?: string;
+  events_url?: string;
   approval?: Approval;
 }
 
@@ -130,8 +138,18 @@ export type RunEventType =
   | "llm_turn"
   | "tool_call"
   | "tool_result"
+  | "memory_recalled"
+  | "memory_written"
+  | "memory_compacted"
+  | "map_started"
+  | "map_item"
+  | "map_finished"
+  | "parallel_started"
+  | "parallel_branch"
+  | "parallel_finished"
   | "decision"
   | "judge_verdict"
+  | "supervisor"
   | "approval_requested"
   | "approval_decided"
   | "paused"
@@ -146,6 +164,7 @@ export type RunEventType =
 /** One SSE event of `GET /api/runs/{id}/events` (spec §15.2). */
 export interface RunEvent {
   run_id: string;
+  /** Position in the run's journal. Increasing but not contiguous (one can be skipped): resume with `fromSeq: seq + 1`. */
   seq: number;
   ts: string | null;
   /** A {@link RunEventType}; kept open so newer servers don't break older clients. */

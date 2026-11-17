@@ -94,8 +94,12 @@ export class TuvlAuth {
    * works.
    *
    * After the OAuth dance the server either:
-   * - redirects to `TUVL_OAUTH_UI_REDIRECT_URL?token=<jwt>`, OR
+   * - redirects to `TUVL_OAUTH_UI_REDIRECT_URL#token=<jwt>` (the token is in the URL fragment, so it never reaches
+   *   a server log; read it with `new URLSearchParams(location.hash.slice(1)).get("token")`), OR
    * - returns a JSON `{access_token, token_type}` body (CLI / server flows).
+   *
+   * Open the URL in the browser that will receive the callback: the server sets a short-lived cookie when the flow
+   * starts and refuses a callback that arrives without it (tuvl >= 2.1).
    */
   getOAuthLoginUrl(provider: string): string {
     return `${this.transport.baseUrl}/auth/oauth/${encodeURIComponent(provider)}/start`;
@@ -103,16 +107,15 @@ export class TuvlAuth {
 
   /**
    * Exchange a valid (non-expired, non-revoked) token for a fresh one.
-   * The old token is immediately blacklisted — discard it after this call.
+   * The old token is revoked at once, on every worker — discard it after this call.
    */
   refresh(token: string, options?: AuthCallOptions): Promise<TokenResponse> {
     return this.transport.json<TokenResponse>("POST", "/auth/refresh", { token, ...options });
   }
 
   /**
-   * Revoke the given token (logout). After this the token is blacklisted
-   * across all workers that share a Redis instance. Resolves silently on
-   * success (HTTP 204).
+   * Revoke the given token (logout). After this every worker refuses it: the revocation is kept in Redis where the
+   * server has a Redis datasource and in its database otherwise. Resolves silently on success (HTTP 204).
    */
   async logout(token: string, options?: AuthCallOptions): Promise<void> {
     await this.transport.send("POST", "/auth/logout", { token, ...options });
