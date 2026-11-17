@@ -61,6 +61,10 @@ npx tuvl-client generate --url http://localhost:8885 --out src/tuvl.generated.ts
 npx tuvl-client generate --file openapi.json
 ```
 
+`--url` defaults to `$TUVL_URL`, then `http://localhost:8885`; `--out` to `tuvl.generated.ts`. A server that needs a token reads it from
+`$TUVL_TOKEN` (`--token <token>` works too, but a flag is visible in the process list and the shell history, so the CLI warns). An option it does not know,
+a flag without its value, or `--file` together with `--url` exits 2 with a message, and `--help` prints the usage and writes nothing.
+
 Every trigger route in `/openapi.json` carries `x-tuvl-workflow`. The generator
 emits one `Workflows` type: per workflow its `input` (path, query and body
 fields of `trigger.input`), its `output` (the default end's body) and `ends`
