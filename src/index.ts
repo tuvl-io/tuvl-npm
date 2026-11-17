@@ -1,5 +1,5 @@
 /**
- * @tuvl/client — TypeScript client for tuvl 2.0 (REST + SSE).
+ * @tuvl/client — TypeScript client for tuvl 2.x (REST + SSE).
  *
  * @example
  * ```ts

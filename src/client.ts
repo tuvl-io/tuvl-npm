@@ -1,5 +1,5 @@
 /**
- * The tuvl 2.0 client (spec §15): start workflow runs, follow them, operate
+ * The tuvl 2.x client (spec §15): start workflow runs, follow them, operate
  * them and decide approvals — REST + SSE only.
  */
 
@@ -47,8 +47,27 @@ export class RunHandle<TOutput = unknown> {
 
   /** Refresh and return the run. */
   async get(options?: RequestOptions): Promise<Run> {
-    this.run = await this.client.runs.get(this.id, options);
+    try {
+      this.run = await this.client.runs.get(this.id, options);
+    } catch (error) {
+      throw this.explained(error);
+    }
     return this.run;
+  }
+
+  /**
+   * A run started by an anonymous caller of a public trigger has no `status_url` and nobody can read it but
+   * `iam:admin`; the server says only "Not authenticated". Say why.
+   */
+  private explained(error: unknown): unknown {
+    if (!(error instanceof TuvlApiError) || ![401, 403, 404].includes(error.status)) return error;
+    if (!this.run || this.run.status_url !== undefined) return error;
+    const said = typeof error.detail === "string" ? error.detail : JSON.stringify(error.detail);
+    return new TuvlApiError(
+      error.status,
+      `${said} (this run was started by an anonymous caller of a public trigger, which only a token with iam:admin can read or follow)`,
+      error.path,
+    );
   }
 
   /**
@@ -57,13 +76,21 @@ export class RunHandle<TOutput = unknown> {
    * cannot be reopened the iterator throws {@link TuvlStreamError}. `follow: false` is one pass and never reconnects.
    * Journal positions (`seq`) have gaps: resume from the last one seen plus one, never from a count.
    */
-  events(options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunEvent> {
-    return this.client.runs.events(this.id, options);
+  async *events(options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunEvent> {
+    try {
+      yield* this.client.runs.events(this.id, options);
+    } catch (error) {
+      throw this.explained(error);
+    }
   }
 
   /** The run's journal events and the live draft of an answer being written, in order. */
-  stream(options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunStreamEvent> {
-    return this.client.runs.stream(this.id, options);
+  async *stream(options?: RequestOptions & { fromSeq?: number; follow?: boolean }): AsyncGenerator<RunStreamEvent> {
+    try {
+      yield* this.client.runs.stream(this.id, options);
+    } catch (error) {
+      throw this.explained(error);
+    }
   }
 
   /**
@@ -71,8 +98,12 @@ export class RunHandle<TOutput = unknown> {
    * pieces to append and `token_reset` to throw the draft away. A client that joins mid-agent first gets the
    * draft so far as one piece with `replay: true`. Ends when the run does.
    */
-  tokens(options?: RequestOptions & { agentId?: string }): AsyncGenerator<TokenEvent> {
-    return this.client.runs.tokens(this.id, options);
+  async *tokens(options?: RequestOptions & { agentId?: string }): AsyncGenerator<TokenEvent> {
+    try {
+      yield* this.client.runs.tokens(this.id, options);
+    } catch (error) {
+      throw this.explained(error);
+    }
   }
 
   /**

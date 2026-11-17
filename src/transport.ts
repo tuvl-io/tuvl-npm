@@ -31,6 +31,7 @@ export function retryAfter(headers: Headers): number | undefined {
   const value = headers.get("retry-after")?.trim();
   if (!value) return undefined;
   if (/^\d+$/.test(value)) return Number(value);
+  if (!/[a-z]/i.test(value)) return undefined; // an HTTP date names its month; this is not one
   const at = Date.parse(value);
   return Number.isNaN(at) ? undefined : Math.max(0, Math.ceil((at - Date.now()) / 1000));
 }

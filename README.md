@@ -4,9 +4,9 @@
 [![CI](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml/badge.svg)](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml)
 [![License](https://img.shields.io/npm/l/@tuvl/client)](LICENSE)
 
-> `@tuvl/client` 2.x targets engine `tuvl >= 2.0`: REST + Server-Sent Events
-> only. Role management (`client.roles()`) needs `tuvl >= 2.1.0b2`.
-> Breaking changes bump the major version ([SemVer](https://semver.org)).
+> `@tuvl/client` 2.x targets engine `tuvl 2.x` and is checked against 2.1: REST + Server-Sent Events
+> only. Role management (`client.roles()`) needs `tuvl >= 2.1.0b2`; a browser on another origin can read a throttled
+> sign-in's `Retry-After` from `tuvl >= 2.1.0b6`. Breaking changes bump the major version ([SemVer](https://semver.org)).
 
 TypeScript client for the [tuvl](https://tuvl.io) workflow engine: start workflow
 runs, follow their journal over SSE, operate them, decide approvals, and use
@@ -24,7 +24,7 @@ pnpm add @tuvl/client
 ```
 
 It runs on Node.js 22 or newer (or a browser, Deno, Bun or an edge runtime) and has no runtime dependencies. CI tests Node.js 22, 24 and 26, the lines Node.js itself supports; older lines are end of life and not supported. It talks to a
-tuvl `2.0` server, which you install with `uv tool install "tuvl[standard]"` ([install guide](https://tuvl.dev/getting-started/installation/)).
+tuvl `2.x` server, which you install with `uv tool install "tuvl[standard]"` ([install guide](https://tuvl.dev/getting-started/installation/)).
 
 ---
 
@@ -88,6 +88,11 @@ be large or carry personal data. A success answer that is not JSON (a proxy's pa
 a `503`), `TuvlApiError.retryAfter` is the number of seconds it said (`Retry-After`); a browser on another origin can read it
 from tuvl 2.1.0b6. Never retry a login or a run start automatically: the client does not.
 `client.start(workflow, input)` starts without waiting and returns a `RunHandle`.
+
+A run started by an **anonymous** caller of a public trigger (no token) is answered with a `202` that has no `status_url` or
+`events_url` (`Run.status_url?`), and nobody but a token with `iam:admin` can read it afterwards. `get()`, `wait()` and the streams of
+its handle then reject with a `TuvlApiError` that says so, instead of a bare `401`. Give the client a token, and a run it starts can be read.
+`RunStatus` has a `compensating` state (a failed run undoing its steps); it is neither final nor a wait for a person, so `wait()` keeps polling.
 
 **Files.** For a workflow whose trigger has `http.upload`, pass a `File` or `Blob` as the value of a
 `file` input (an array for `list[file]`). The client then sends `multipart/form-data`: files as file parts,
@@ -203,15 +208,17 @@ Needs scope `approvals:decide` plus the agent's `required_group`.
 `{ run_id, seq, ts, type, agent_id, engine, tokens, latency_ms, payload }` — `type`
 is one of `run_queued`, `run_started`, `agent_started`, `agent_completed`,
 `signal`, `llm_turn`, `tool_call`, `tool_result`, `decision`, `judge_verdict`,
-`approval_requested`, `approval_decided`, `paused`, `resumed`, `checkpoint`,
+`memory_recalled`, `memory_written`, `memory_compacted`, `map_started`, `map_item`, `map_finished`, `parallel_started`,
+`parallel_branch`, `parallel_finished`, `supervisor`, `approval_requested`, `approval_decided`, `paused`, `resumed`, `checkpoint`,
 `compensation_started`, `compensation_completed`, `run_completed`,
-`run_failed`, `run_aborted`.
+`run_failed`, `run_aborted`. The type stays open (`string`), so an event a newer server adds does not break an older client.
+`seq` increases but has gaps: resume from the last one seen plus one, never from a count.
 
 ---
 
 ## Authentication
 
-The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path }`, the same as every other call. Role membership (list roles, add or remove a member, disable a role) is in [`client.roles()`](#role-management). The rest of the admin API (user and role CRUD, scopes, federation config) is development-time work, done with `tuvl iam` and the project's YAML, and is intentionally not wrapped.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path, retryAfter? }`, the same as every other call. After a few wrong passwords the server throttles that login and that address and answers `429` with `Retry-After`; `retryAfter` is those seconds, and a sign-in form should show them. A password the server's rule refuses (8 characters at least, 72 bytes at most) is a `422`. Logout and refresh revoke the old token on every worker, with or without Redis. Role membership (list roles, add or remove a member, disable a role) is in [`client.roles()`](#role-management). The rest of the admin API (user and role CRUD, scopes, federation config) is development-time work, done with `tuvl iam` and the project's YAML, and is intentionally not wrapped.
 
 ### `new TuvlAuth(options)`
 
@@ -246,9 +253,14 @@ Only a server that mounts the `iam` API group answers this: the dev server, or o
 // Redirect the browser to the provider's login page
 window.location.href = auth.getOAuthLoginUrl("google"); // or "github" / "microsoft"
 
-// On the landing page (TUVL_OAUTH_UI_REDIRECT_URL), pick up the token:
-const token = new URLSearchParams(window.location.search).get("token")!;
+// On the landing page (TUVL_OAUTH_UI_REDIRECT_URL) the token is in the URL fragment, which never reaches a server log:
+const token = new URLSearchParams(window.location.hash.slice(1)).get("token")!;
+history.replaceState(null, "", window.location.pathname); // take it out of the address bar and the history
 ```
+
+Open the start URL in the browser that will receive the callback: the server sets a short-lived cookie when the flow starts and
+refuses a callback that arrives without it (`tuvl >= 2.1`). Without a `TUVL_OAUTH_UI_REDIRECT_URL` the callback answers with JSON
+(`{ access_token, token_type }`), the form a CLI or a server uses.
 
 ### Read the token locally
 
@@ -347,7 +359,7 @@ Pages are ordered by email; pass a page's `next_cursor` as `cursor` for the next
 
 ## CRUD — model data access
 
-`client.crud(modelName)` returns a `CrudClient` that targets the auto-generated REST endpoints at `/models/{modelname}/`. The token and base URL are shared with the parent `TuvlClient`. In tuvl 2.0 CRUD is off by default: a model opts in per operation with `spec.api.crud: [list, read, create, update, delete]`.
+`client.crud(modelName)` returns a `CrudClient` that targets the auto-generated REST endpoints at `/models/{modelname}/`. The token and base URL are shared with the parent `TuvlClient`. In tuvl 2.x CRUD is off by default: a model opts in per operation with `spec.api.crud: [list, read, create, update, delete]`.
 
 ```ts
 import { TuvlClient } from "@tuvl/client";
@@ -387,6 +399,15 @@ await client.crud("candidate").delete("uuid");
 ### `client.crud<TRead, TCreate, TUpdate>(modelName)`
 
 Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased and URL-encoded (an empty name, `.` and `..` throw a `TypeError`). A refused call rejects with `TuvlApiError`.
+
+What a server from `tuvl 2.1` does that the client passes through unchanged:
+
+- Fields the model marks `secure: true` are left out of every read (`list`, `get`, and records embedded with `include`) unless the
+  token has `{modelname}:read_secure` or `iam:admin`; type them as optional.
+- `include` needs read access to the related model too, else `403`; the embedded records now arrive.
+- `update()` is a `PATCH`: a field you leave out is untouched, and `null` clears a nullable field (`422` on one that is required).
+- Lists come in a stable order (by primary key); `limit` and `offset` page through them.
+- A write the database refuses answers `409` (a unique value is taken) or `422` (a required value is missing).
 
 ### `CrudListOptions`
 
