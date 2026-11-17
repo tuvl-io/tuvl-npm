@@ -281,6 +281,23 @@ describe("aborting", () => {
   });
 });
 
+describe("ready()", () => {
+  it("is true for a 200 and false for the 503 of a server that is not ready", async () => {
+    mockFetch.mockResolvedValueOnce(json({ status: "ready" }));
+    expect(await client().ready()).toBe(true);
+    expect(call().url).toBe("http://srv/ready");
+    mockFetch.mockResolvedValueOnce(json({ status: "unavailable" }, 503));
+    expect(await client().ready()).toBe(false);
+  });
+
+  it("rejects for anything else, and when nothing answers", async () => {
+    mockFetch.mockResolvedValueOnce(json({ detail: "Not found" }, 404));
+    await expect(client().ready()).rejects.toMatchObject({ status: 404, path: "/ready" });
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(client().ready()).rejects.toThrow("fetch failed");
+  });
+});
+
 describe("the rest of the surface", () => {
   it("resume() and abort() post to the run", async () => {
     mockFetch.mockImplementation(async () => json(run()));

@@ -1,8 +1,8 @@
 /**
  * Tests for TuvlAuth — authentication helpers.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { TuvlAuth } from "./auth";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { TuvlAuth, readOAuthToken } from "./auth";
 import { TuvlApiError } from "./types";
 
 const mockFetch = vi.fn<typeof fetch>();
@@ -179,6 +179,92 @@ describe("TuvlAuth", () => {
     it("ignores a body on success", async () => {
       mockFetch.mockResolvedValueOnce(new Response("ok", { status: 200 }));
       await expect(new TuvlAuth({ baseUrl: "http://srv" }).logout("tok")).resolves.toBeUndefined();
+    });
+  });
+});
+
+describe("setPassword", () => {
+  const auth = new TuvlAuth({ baseUrl: "http://srv" });
+  const link = "tok_".padEnd(40, "x");
+
+  it("posts the link's token and the new password, as JSON, with no credentials of its own", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(auth.setPassword(link, "a-long-password-1")).resolves.toBeUndefined();
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://srv/auth/password/set");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ token: link, password: "a-long-password-1" });
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it("rejects a link that is not valid (400) and a password the rule refuses (422), without echoing the password", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ detail: "This link is not valid or has expired" }, 400));
+    await expect(auth.setPassword(link, "a-long-password-1")).rejects.toMatchObject({ status: 400, path: "/auth/password/set" });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ detail: "Password must be at least 8 characters" }, 422));
+    const refused = await auth.setPassword(link, "short").catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(TuvlApiError);
+    expect(refused).toMatchObject({ status: 422 });
+    expect(String((refused as Error).message)).not.toContain("short\"");
+  });
+
+  it("can be cancelled", async () => {
+    const controller = new AbortController();
+    mockFetch.mockImplementationOnce(async (_url, init) => {
+      if (init?.signal?.aborted) throw init.signal.reason;
+      return new Response(null, { status: 204 });
+    });
+    controller.abort(new Error("stop"));
+    await expect(auth.setPassword(link, "a-long-password-1", { signal: controller.signal })).rejects.toThrow("stop");
+  });
+});
+
+describe("jwksUrl", () => {
+  it("is where the server publishes its keys", () => {
+    expect(new TuvlAuth({ baseUrl: "http://srv/" }).jwksUrl()).toBe("http://srv/auth/jwks.json");
+  });
+});
+
+describe("readOAuthToken", () => {
+  it("reads the token from the fragment the server redirects to", () => {
+    expect(readOAuthToken({ url: "https://app.example.com/signed-in#token=abc.def.ghi" })).toBe("abc.def.ghi");
+    expect(readOAuthToken({ url: new URL("https://app.example.com/#token=a%2Bb&x=1") })).toBe("a+b");
+  });
+
+  it("does not read the query string: a token there would have been logged", () => {
+    expect(readOAuthToken({ url: "https://app.example.com/signed-in?token=abc.def.ghi" })).toBeUndefined();
+  });
+
+  it("is undefined when there is no token, an empty one, or no address", () => {
+    expect(readOAuthToken({ url: "https://app.example.com/" })).toBeUndefined();
+    expect(readOAuthToken({ url: "https://app.example.com/#token=" })).toBeUndefined();
+    expect(readOAuthToken({ url: "https://app.example.com/#other=1" })).toBeUndefined();
+    expect(readOAuthToken()).toBeUndefined(); // Node has no page
+  });
+
+  describe("in a browser", () => {
+    const replaceState = vi.fn();
+    beforeEach(() => {
+      replaceState.mockReset();
+      vi.stubGlobal("location", { href: "https://app.example.com/signed-in?from=login#token=abc.def.ghi" });
+      vi.stubGlobal("history", { replaceState });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("reads the page's own address and leaves it alone unless told to clear it", () => {
+      expect(readOAuthToken()).toBe("abc.def.ghi");
+      expect(replaceState).not.toHaveBeenCalled();
+    });
+
+    it("takes the fragment out of the address bar and the history when asked, keeping the path and the query", () => {
+      expect(readOAuthToken({ clear: true })).toBe("abc.def.ghi");
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/signed-in?from=login");
+    });
+
+    it("never rewrites the page's address for an address it was given", () => {
+      expect(readOAuthToken({ url: "https://other.example.com/#token=zzz", clear: true })).toBe("zzz");
+      expect(replaceState).not.toHaveBeenCalled();
     });
   });
 });

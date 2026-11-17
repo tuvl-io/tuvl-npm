@@ -16,7 +16,7 @@
 
 export { RunHandle, TuvlClient } from "./client";
 export { isTokenEvent } from "./types";
-export { TuvlAuth } from "./auth";
+export { TuvlAuth, readOAuthToken } from "./auth";
 export { readToken, tokenExpiresAt, isTokenExpired } from "./token";
 export type { TokenClaims } from "./token";
 export type { AuthCallOptions, TuvlAuthOptions, BootstrapRequest } from "./auth";
