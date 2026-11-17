@@ -91,7 +91,8 @@ be large or carry personal data. A success answer that is not JSON (a proxy's pa
 `TuvlApiError` that names the path and the content type. When the server asks the caller to wait (the login throttle's `429`,
 a `503`), `TuvlApiError.retryAfter` is the number of seconds it said (`Retry-After`); a browser on another origin can read it
 from tuvl 2.1.0b6. Never retry a login or a run start automatically: the client does not.
-`client.start(workflow, input)` starts without waiting and returns a `RunHandle`.
+`client.start(workflow, input)` starts without waiting and returns a `RunHandle`. `client.ready()` asks `GET /ready`: `true` when the server can serve
+requests, `false` for the `503` of one that is starting, shutting down or cannot reach its database (a script that waits for a server can poll it).
 
 A run started by an **anonymous** caller of a public trigger (no token) is answered with a `202` that has no `status_url` or
 `events_url` (`Run.status_url?`), and nobody but a token with `iam:admin` can read it afterwards. `get()`, `wait()` and the streams of
@@ -222,7 +223,7 @@ is one of `run_queued`, `run_started`, `agent_started`, `agent_completed`,
 
 ## Authentication
 
-The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path, retryAfter? }`, the same as every other call. After a few wrong passwords the server throttles that login and that address and answers `429` with `Retry-After`; `retryAfter` is those seconds, and a sign-in form should show them. A password the server's rule refuses (8 characters at least, 72 bytes at most) is a `422`. Logout and refresh revoke the old token on every worker, with or without Redis. Role membership (list roles, add or remove a member, disable a role) is in [`client.roles()`](#role-management). The rest of the admin API (user and role CRUD, scopes, federation config) is development-time work, done with `tuvl iam` and the project's YAML, and is intentionally not wrapped.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `setPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path, retryAfter? }`, the same as every other call. After a few wrong passwords the server throttles that login and that address and answers `429` with `Retry-After`; `retryAfter` is those seconds, and a sign-in form should show them. A password the server's rule refuses (8 characters at least, 72 bytes at most) is a `422`. Logout and refresh revoke the old token on every worker, with or without Redis. Role membership (list roles, add or remove a member, disable a role) is in [`client.roles()`](#role-management). The rest of the admin API (user and role CRUD, scopes, federation config) is development-time work, done with `tuvl iam` and the project's YAML, and is intentionally not wrapped.
 
 ### `new TuvlAuth(options)`
 
@@ -257,14 +258,30 @@ Only a server that mounts the `iam` API group answers this: the dev server, or o
 // Redirect the browser to the provider's login page
 window.location.href = auth.getOAuthLoginUrl("google"); // or "github" / "microsoft"
 
-// On the landing page (TUVL_OAUTH_UI_REDIRECT_URL) the token is in the URL fragment, which never reaches a server log:
-const token = new URLSearchParams(window.location.hash.slice(1)).get("token")!;
-history.replaceState(null, "", window.location.pathname); // take it out of the address bar and the history
+// On the landing page (TUVL_OAUTH_UI_REDIRECT_URL) the token is in the URL fragment, which never reaches a server log.
+// readOAuthToken reads it and, with clear: true, takes it out of the address bar and the history:
+import { readOAuthToken } from "@tuvl/client";
+const token = readOAuthToken({ clear: true }); // undefined when the page was not reached by a sign-in
+if (token) client.setToken(token);
 ```
 
 Open the start URL in the browser that will receive the callback: the server sets a short-lived cookie when the flow starts and
 refuses a callback that arrives without it (`tuvl >= 2.1`). Without a `TUVL_OAUTH_UI_REDIRECT_URL` the callback answers with JSON
 (`{ access_token, token_type }`), the form a CLI or a server uses.
+
+### Set a password from a link
+
+An administrator invites a user with `tuvl iam users invite` (or `POST /auth/admin/users/{id}/invite`) and gives them a link that holds a
+one-time token. The page behind the link sets the password with it; no sign-in is needed, because the token is the credential:
+
+```ts
+const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
+await auth.setPassword(tokenFromTheLink, newPassword); // 204; throws TuvlApiError 400 (used, expired or unknown) or 422 (the password rule)
+const { access_token } = await auth.loginWithPassword(email, newPassword);
+```
+
+The token works once and expires; setting a password ends the user's open sessions. `auth.jwksUrl()` is where the server publishes its signing
+keys (`/auth/jwks.json`), for a service that verifies tokens itself.
 
 ### Read the token locally
 

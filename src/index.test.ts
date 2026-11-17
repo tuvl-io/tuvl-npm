@@ -22,6 +22,7 @@ describe("public exports", () => {
         "isTokenExpired",
         "parseSseEvents",
         "parseSseStream",
+        "readOAuthToken",
         "readToken",
         "tokenExpiresAt",
         "verifyWebhook",

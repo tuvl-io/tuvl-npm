@@ -86,6 +86,24 @@ export class TuvlAuth {
   }
 
   /**
+   * Set your own password with the one-time token of a set-password link (an administrator makes one with
+   * `tuvl iam users invite`, or `POST /auth/admin/users/{id}/invite`). Public: the token is the credential. It works
+   * once and expires, and the user's open sessions end. Resolves silently on success (HTTP 204); sign in afterwards with
+   * {@link TuvlAuth.loginWithPassword}.
+   *
+   * @throws {TuvlApiError} 400 if the token is not valid (unknown, used or expired); 422 if the password breaks the
+   * server's rule (8 characters at least, 72 bytes at most).
+   */
+  async setPassword(token: string, password: string, options?: AuthCallOptions): Promise<void> {
+    await this.transport.send("POST", "/auth/password/set", { body: { token, password }, ...options });
+  }
+
+  /** Where the server publishes its signing keys (`GET /auth/jwks.json`), for a service that verifies tokens itself. */
+  jwksUrl(): string {
+    return `${this.transport.baseUrl}/auth/jwks.json`;
+  }
+
+  /**
    * Return the URL the browser should navigate to in order to start an
    * OAuth2 login flow for the given provider.
    *
@@ -120,4 +138,22 @@ export class TuvlAuth {
   async logout(token: string, options?: AuthCallOptions): Promise<void> {
     await this.transport.send("POST", "/auth/logout", { token, ...options });
   }
+}
+
+/**
+ * The token an OAuth sign-in left in the address of the page it sent the browser back to
+ * (`https://app.example.com/signed-in#token=<jwt>`, the server's `TUVL_OAUTH_UI_REDIRECT_URL`). It is in the fragment so
+ * that it never reaches a server log; this reads it from there. Undefined when the address has none.
+ *
+ * With no `url` it reads the page's own address, and `clear: true` then removes the fragment from the address bar and the
+ * history (`history.replaceState`), so the token is not left lying around to be copied or shared. Read it once, store
+ * it where your app keeps tokens, and call `client.setToken(token)`.
+ */
+export function readOAuthToken(options: { url?: string | URL; clear?: boolean } = {}): string | undefined {
+  const href = options.url ?? globalThis.location?.href;
+  if (href === undefined) return undefined;
+  const url = new URL(String(href));
+  const token = new URLSearchParams(url.hash.slice(1)).get("token") || undefined;
+  if (token && options.clear && options.url === undefined) globalThis.history?.replaceState(null, "", `${url.pathname}${url.search}`);
+  return token;
 }

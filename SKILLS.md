@@ -26,6 +26,32 @@ client.setToken(access_token);
 ```
 
 ---
+name: set-password
+description: Let an invited user choose their own password from a one-time link.
+options:
+  argument-hint: "[link-token]"
+---
+
+### Body
+
+1. An administrator makes the link with `tuvl iam users invite`; its token is in the link. The page needs no sign-in.
+2. Call `setPassword` with the token and the new password, then sign in.
+3. A `400` means the link was used, has expired or is unknown; a `422` means the password breaks the server's rule (8 to 72 bytes). Ask for another link or password; do not retry in a loop.
+
+```ts
+import { TuvlAuth, TuvlApiError } from "@tuvl/client";
+
+const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
+try {
+  await auth.setPassword(tokenFromTheLink, newPassword);
+  const { access_token } = await auth.loginWithPassword(email, newPassword);
+} catch (err) {
+  if (err instanceof TuvlApiError && err.status === 400) console.error("ask for a new link");
+  else throw err;
+}
+```
+
+---
 name: generate-types
 description: Generate typed workflow inputs and outputs from a running server.
 options:

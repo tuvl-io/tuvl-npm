@@ -34,7 +34,9 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 | `runs.webhooks(runId)` / `redeliverWebhook` | a run's webhook notifications; send one again |
 | `verifyWebhook(rawBody, signatureHeader, secrets)` / `webhookHandler({ secrets, onNotification })` / `WebhookError` | receive and verify `spec.webhooks` notifications; a body over 64 KiB (`maxBodyBytes`) is `WebhookError` `too_large` and the handler answers 413 |
 | `RunHandle.get / events / wait({ intervalMs?, maxIntervalMs?, timeoutMs?, untilWaiting? }) / pause / resume / abort / steer(message)` | per run |
-| `TuvlAuth` | `/auth/*`: `loginWithPassword`, `bootstrap` (dev server only), `getOAuthLoginUrl`, `refresh`, `getMe`, `logout` |
+| `TuvlAuth` | `/auth/*`: `loginWithPassword`, `setPassword(linkToken, password)`, `bootstrap` (dev server only), `getOAuthLoginUrl`, `refresh`, `getMe`, `logout`, `jwksUrl()` |
+| `readOAuthToken({ url?, clear? })` | the token an OAuth sign-in left in the landing page's URL fragment (`#token=`) |
+| `client.ready()` | `GET /ready`: `true` (200) or `false` (503) |
 | `roles()` → `RolesClient` | role membership, tuvl >= 2.1.0b2 with `roles` exposed and `roles:manage`: `isAvailable()` / `list()` / `members(roleId, { limit?, cursor? })` / `findUsers({ q?, limit?, cursor? })` / `addUser(roleId, userId)` / `removeUser(roleId, userId)` / `setActive(roleId, active)` / `disable` / `enable`. Creating roles, scopes and users are not wrapped: they are development-time (`RoleSeed`, `tuvl iam`) |
 
 ## 3. Outcomes

@@ -288,6 +288,18 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
     return body as T;
   }
 
+  /**
+   * Whether the server can serve requests now (`GET /ready`): `true` for a `200`, `false` for the `503` of a server that is
+   * starting, shutting down or cannot reach its database. Anything else, or no answer, rejects. For scripts and tests that
+   * wait for a server; the answer says nothing about the caller's token.
+   */
+  async ready(options?: RequestOptions): Promise<boolean> {
+    const response = await this.transport.request("GET", "/ready", options);
+    if (response.status === 200) return true;
+    if (response.status === 503) return false;
+    throw await refusal(response, "/ready");
+  }
+
   /** A handle on an existing run. */
   run<T = unknown>(runId: string): RunHandle<T> {
     return new RunHandle<T>(this as unknown as TuvlClient<WorkflowTypes>, runId);
