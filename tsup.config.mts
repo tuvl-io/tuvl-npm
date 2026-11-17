@@ -15,6 +15,6 @@ export default defineConfig([{
   format: ["cjs"],
   sourcemap: false,
   clean: false,
-  target: "node18",
+  target: "node22",
   outDir: "dist",
 }]);
