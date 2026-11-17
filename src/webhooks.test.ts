@@ -227,6 +227,27 @@ describe("webhookHandler limits", () => {
     expect(pulled).toBeLessThan(256 * 1024);
   });
 
+  it("still answers 413 when the sender's stream will not cancel", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull: (controller) => controller.enqueue(new Uint8Array(40 * 1024)),
+      cancel: () => {
+        throw new Error("the connection is already gone");
+      },
+    });
+    const handle = webhookHandler({ secrets: SECRET, onNotification: () => {} });
+    expect((await handle(post(stream, fresh(BODY)))).status).toBe(413);
+  });
+
+  it("lets a misconfigured handler fail loudly instead of answering as if the sender were at fault", async () => {
+    const handle = webhookHandler({ secrets: [], onNotification: () => {} });
+    await expect(handle(post(BODY, fresh(BODY)))).rejects.toThrow(/at least one secret/);
+  });
+
+  it("treats a POST with no body as malformed", async () => {
+    const handle = webhookHandler({ secrets: SECRET, onNotification: () => {} });
+    expect((await handle(new Request("https://app.example.com/hook", { method: "POST" }))).status).toBe(400);
+  });
+
   it("reads a body that arrives in several chunks", async () => {
     const bytes = new TextEncoder().encode(BODY);
     const stream = new ReadableStream<Uint8Array>({

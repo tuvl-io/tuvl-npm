@@ -130,7 +130,7 @@ options:
 
 1. A notification holds only the run id, what happened and a journal position. Pull the run with your own token (scope `runs:read`).
 2. Verify the signature on the **raw** body before trusting it. `webhookHandler` does this for anything that speaks `Request`/`Response`;
-   for Express use `verifyWebhook(rawBody, req.header("tuvl-signature"), secrets)`, which throws `WebhookError` (answer 401).
+   for Express use `verifyWebhook(rawBody, req.header("tuvl-signature"), secrets)`, which throws `WebhookError` (answer 401; 400 for `malformed`, 413 for `too_large`, a body over 64 KiB).
 3. Delivery is at-least-once: ignore a notification id you have seen. Pass the old secret too while rotating.
 
 ```ts

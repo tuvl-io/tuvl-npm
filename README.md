@@ -118,7 +118,9 @@ export const POST = webhookHandler({
 For Express, give the route the raw body (`express.raw({ type: "application/json" })`) and call
 `verifyWebhook(req.body, req.header("tuvl-signature"), secrets)`; it throws `WebhookError` (answer 401) unless the
 signature matches, the body is untouched and the timestamp is within five minutes. Never verify a re-serialised
-body. `client.runs.webhooks(runId)` lists a run's notifications and `redeliverWebhook` sends one again.
+body. A notification is a few hundred bytes, so a body over 64 KiB is refused before anything is hashed (`maxBodyBytes`
+changes the limit; `WebhookError` reason `too_large`, and `webhookHandler` answers 413 without reading the rest), and so is a
+signature header over 2 KB or with more than ten candidates (`malformed`). `client.runs.webhooks(runId)` lists a run's notifications and `redeliverWebhook` sends one again.
 
 A phone should not hold the secret: receive on your backend, verify, then push only the run id to the device
 (FCM, APNs, ntfy). The app pulls the run with the user's own token.
