@@ -26,6 +26,20 @@ export async function detail(response: Response): Promise<unknown> {
   }
 }
 
+/** Seconds from a `Retry-After` header (a number of seconds or an HTTP date); undefined when it is absent or unreadable. */
+export function retryAfter(headers: Headers): number | undefined {
+  const value = headers.get("retry-after")?.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value);
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, Math.ceil((at - Date.now()) / 1000));
+}
+
+/** The error for a refused request: what the server said and how long it asked the caller to wait. */
+export async function refusal(response: Response, path: string): Promise<TuvlApiError> {
+  return new TuvlApiError(response.status, await detail(response), path, retryAfter(response.headers));
+}
+
 /**
  * The JSON body of a successful response. A body that is not JSON (an HTML page from a proxy or a captive portal,
  * a wrong `baseUrl`) is a {@link TuvlApiError} that names the path and the content type, not a bare `SyntaxError`.
@@ -104,7 +118,7 @@ export class Transport {
     options?: Parameters<Transport["request"]>[2],
   ): Promise<Response> {
     const response = await this.request(method, path, options);
-    if (!response.ok) throw new TuvlApiError(response.status, await detail(response), path);
+    if (!response.ok) throw await refusal(response, path);
     return response;
   }
 

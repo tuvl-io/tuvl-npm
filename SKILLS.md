@@ -183,6 +183,9 @@ for await (const event of client.run(runId).events()) {
 }
 ```
 
+A followed stream reopens itself when the connection drops, from the last `seq` it read. If it cannot (five tries), it throws `TuvlStreamError`
+with `lastSeq`: resume with `events({ fromSeq: error.lastSeq + 1 })`. `events({ follow: false })` reads what is there and stops.
+
 ---
 name: crud-model
 description: Read and write records of a model that opted into CRUD (`spec.api.crud`).

@@ -33,7 +33,7 @@ export type {
 } from "./webhooks";
 export { parseSseEvents, parseSseStream } from "./sse";
 export { Transport } from "./transport";
-export { TERMINAL_STATUSES, TuvlApiError, TuvlRunError, WAITING_STATUSES } from "./types";
+export { TERMINAL_STATUSES, TuvlApiError, TuvlRunError, TuvlStreamError, TuvlTimeoutError, WAITING_STATUSES } from "./types";
 export type {
   Approval,
   ApprovalDecision,

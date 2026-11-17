@@ -26,7 +26,7 @@
  * ```
  */
 
-import { detail, type Transport } from "./transport";
+import { refusal, type Transport } from "./transport";
 import type { Page, RequestOptions, Role, RoleMember } from "./types";
 import { TuvlApiError } from "./types";
 
@@ -56,7 +56,7 @@ export class RolesClient {
     const response = await this.transport.request("GET", BASE, options);
     if (response.ok || response.status === 401 || response.status === 403) return true;
     if (response.status === 404) return false;
-    throw new TuvlApiError(response.status, await detail(response), BASE);
+    throw await refusal(response, BASE);
   }
 
   /** Every role, with what it grants (read-only), whether it is active, and its member count. */

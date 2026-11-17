@@ -14,6 +14,8 @@ describe("public exports", () => {
         "TuvlAuth",
         "TuvlClient",
         "TuvlRunError",
+        "TuvlStreamError",
+        "TuvlTimeoutError",
         "WAITING_STATUSES",
         "WebhookError",
         "isTokenEvent",

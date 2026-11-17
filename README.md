@@ -45,7 +45,7 @@ const result = await client.execute("triage_ticket", {
 if (result instanceof RunHandle) {
   // the run waits on a person or outlived the trigger's sync_timeout
   for await (const event of result.events()) console.log(event.seq, event.type, event.agent_id);
-  console.log(await result.wait());
+  console.log(await result.wait({ untilWaiting: true, timeoutMs: 60_000 })); // undefined if it is still waiting on a person
 } else {
   console.log(result.category, result.urgency); // typed from the default end
 }
@@ -84,7 +84,9 @@ workflow name with untyped input and output.
 
 A `TuvlRunError`'s message has the run id and the status; the body is on `.body`, because messages reach logs and a body can
 be large or carry personal data. A success answer that is not JSON (a proxy's page, a wrong `baseUrl`) rejects with a
-`TuvlApiError` that names the path and the content type.
+`TuvlApiError` that names the path and the content type. When the server asks the caller to wait (the login throttle's `429`,
+a `503`), `TuvlApiError.retryAfter` is the number of seconds it said (`Retry-After`); a browser on another origin can read it
+from tuvl 2.1.0b6. Never retry a login or a run start automatically: the client does not.
 `client.start(workflow, input)` starts without waiting and returns a `RunHandle`.
 
 **Files.** For a workflow whose trigger has `http.upload`, pass a `File` or `Blob` as the value of a
@@ -159,13 +161,26 @@ await live.done;
 |---|---|
 | `id`, `run` | run id; the run as last seen |
 | `get()` | refresh (`GET /api/runs/{id}`) |
-| `events({ fromSeq?, follow? })` | async iterator of `RunEvent` over SSE: replay, then live until the run ends |
+| `events({ fromSeq?, follow? })` | async iterator of `RunEvent` over SSE: replay, then live until the run ends. A dropped connection is reopened from where it stopped; see [Following a run](#following-a-run) |
 | `onToken(listener, { onReset?, agentId? })` | call `listener(piece)` for each piece of an answer as it is written; returns `{ stop, done }` |
 | `tokens({ agentId? })`, `stream({ fromSeq?, follow? })` | async iterators of live drafts only, or of journal events and drafts together |
-| `wait({ intervalMs?, timeoutMs?, untilWaiting? })` | poll until the run ends; resolves the output or rejects `TuvlRunError`. `untilWaiting` also stops when it waits on a person |
+| `wait({ intervalMs?, maxIntervalMs?, timeoutMs?, untilWaiting? })` | poll until the run ends; resolves the output or rejects `TuvlRunError`. The poll slows from `intervalMs` (500 ms) to `maxIntervalMs` (5 s); five failures in a row are ridden out; `timeoutMs` rejects with `TuvlTimeoutError`. `untilWaiting` also stops when it waits on a person: without it, a run that waits on a person is polled for as long as they take |
 | `pause()`, `resume()`, `abort()`, `steer(message)` | operator control (scope `runs:control`) |
 
 `client.run(id)` gives a handle on any run.
+
+#### Following a run
+
+A followed stream that ends is not a run that ended: a proxy times the connection out, a pod restarts, the network drops.
+`events()`, `stream()` and `tokens()` therefore reopen the stream from the last position they read (the next `seq`, never a
+count: a run's `seq` has gaps), skip anything they already delivered, and stop when the run's last event arrives or the run
+is in a final state. They give up after five failed attempts in a row (about 15 s) and throw `TuvlStreamError { runId, lastSeq, cause }`;
+resume with `events({ fromSeq: error.lastSeq + 1 })`. A refusal (401, 403, 404) is thrown at once, and the first connection is not
+retried, so a wrong address is reported immediately. `follow: false` is a single pass and never reconnects.
+
+Live drafts (`onToken`, `tokens()`) have no position, so they cannot be resumed: after a reconnect the listener's `onReset` is called
+for the draft it was showing and the engine sends the draft so far again. `wait()` rejects with `TuvlTimeoutError { runId, status, timeoutMs }`
+when `timeoutMs` runs out.
 
 ### `client.runs`
 

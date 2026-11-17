@@ -18,7 +18,8 @@ Generate `Workflows` with `npx tuvl-client generate` and construct `new TuvlClie
 ## 3. Results and Errors
 - `execute()` resolves the end's body, or a `RunHandle` (check `result instanceof RunHandle`) when the run waits on a person/approval or outlives the trigger's `sync_timeout`.
 - An end with status ≥ 400, a failed or aborted run rejects with `TuvlRunError` (`status`, `body`, `runId`).
-- A refused request (auth, unknown workflow, input not matching `trigger.input`) rejects with `TuvlApiError` (`status`, `detail`).
+- A refused request (auth, unknown workflow, input not matching `trigger.input`) rejects with `TuvlApiError` (`status`, `detail`, `retryAfter` when the server said how long to wait).
+- `wait({ timeoutMs })` rejects with `TuvlTimeoutError`; a followed stream that cannot be reopened rejects with `TuvlStreamError` (`lastSeq`). A run that waits on a person needs `wait({ untilWaiting: true })`, a `timeoutMs` or a `signal`.
 
 ## 4. People and Approvals
 Answer a waiting run with `client.approvals.decide(approvalId, { values })` (human forms) or `{ decision: "approve" | "reject" | "edit", edited_args? }` (tool calls), then `handle.wait()`.

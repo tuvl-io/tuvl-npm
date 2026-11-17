@@ -12,7 +12,9 @@ import { dirname, join } from "node:path";
 const require = createRequire(import.meta.url);
 const entries = { import: await import("@tuvl/client"), require: require("@tuvl/client") };
 
-const seen = { uploadType: "" };
+const seen = { uploadType: "", resumeUrl: "" };
+const connections = { r2: 0 };
+const frame = (seq, type) => `id: ${seq}\nevent: ${type}\ndata: {"run_id":"r2","seq":${seq},"type":"${type}","payload":{}}\n\n`;
 const server = createServer((req, res) => {
   const json = (body, headers = {}) => {
     res.writeHead(200, { "content-type": "application/json", ...headers });
@@ -23,6 +25,17 @@ const server = createServer((req, res) => {
     res.write('id: 1\nevent: run_started\ndata: {"run_id":"r1","seq":1,"type":"run_started","payload":{}}\n\n');
     return res.end('id: 2\nevent: run_completed\ndata: {"run_id":"r1","seq":2,"type":"run_completed","payload":{}}\n\n');
   }
+  if (req.url.startsWith("/api/runs/r2/events")) {
+    connections.r2 += 1;
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    if (connections.r2 === 1) {
+      res.write(frame(1, "run_started"));
+      return setTimeout(() => res.destroy(), 20); // the connection drops with the run still going
+    }
+    seen.resumeUrl = req.url;
+    return res.end(frame(2, "run_completed"));
+  }
+  if (req.url === "/api/runs/r2") return json({ run_id: "r2", status: "running" });
   if (req.url.startsWith("/models/")) return json([{ id: "1" }]);
   seen.uploadType = req.headers["content-type"] ?? "";
   req.resume();
@@ -67,6 +80,13 @@ for (const [kind, tuvl] of Object.entries(entries)) {
     const types = [];
     for await (const event of client.runs.events("r1")) types.push(event.type);
     assert.deepEqual(types, ["run_started", "run_completed"]);
+  });
+  await check(`${kind}: a dropped connection is reopened from where it stopped`, async () => {
+    connections.r2 = 0;
+    const seqs = [];
+    for await (const event of client.runs.events("r2")) seqs.push(event.seq);
+    assert.deepEqual(seqs, [1, 2]);
+    assert.match(seen.resumeUrl, /from_seq=2/);
   });
   await check(`${kind}: list a model (CRUD)`, async () => assert.deepEqual(await client.crud("candidate").list(), [{ id: "1" }]));
   await check(`${kind}: read a token's claims`, () => assert.equal(tuvl.readToken(token).sub, "u"));
