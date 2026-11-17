@@ -144,7 +144,7 @@ async function genuine(
  * tolerance (a replay), a body over `maxBodyBytes`, or a body that is not a tuvl notification.
  *
  * `secrets` is every secret you currently accept: pass the new and the old one while rotating.
- * Works in Node 18+, Deno, Bun and edge runtimes (it uses Web Crypto).
+ * Works in Node 22+, Deno, Bun and edge runtimes (it uses Web Crypto).
  */
 export async function verifyWebhook(
   rawBody: string | Uint8Array | ArrayBuffer,

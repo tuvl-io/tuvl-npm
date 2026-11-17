@@ -77,7 +77,10 @@ check: typecheck lint test
 #   1. dist/ files declared in the `files` array actually got bundled,
 #   2. the `exports` map resolves cleanly for CommonJS consumers,
 #   3. TuvlClient + TuvlAuth are present at the top level (catches a stale
-#      tree-shaken bundle or a broken main entry).
+#      tree-shaken bundle or a broken main entry),
+#   4. the package works on the Node that runs it: scripts/smoke.mjs drives
+#      both entry points, the webhook, SSE and upload paths and the CLI.
+#      CI runs it on every supported line; try one with `make smoke NODE="npx -y node@24"`.
 #
 # This mirrors the engine's wheel-install smoke step in publish.yml and
 # catches "looks fine, breaks on npm install" packaging regressions before
@@ -94,7 +97,8 @@ smoke: build
 	  cd /tmp/tuvl-smoke && \
 	    echo '{"name":"smoke","version":"0.0.0","private":true,"type":"commonjs"}' > package.json && \
 	    $(PKG) add "$$REPO_DIR/$$TARBALL" >/dev/null 2>&1 && \
-	    $(NODE) -e 'const t = require("@tuvl/client"); for (const k of ["TuvlClient","TuvlAuth","CrudClient","Transport","parseSseStream"]) { if (!t[k]) { console.error("missing export: " + k); process.exit(1); } } console.log("  ✓ require(\"@tuvl/client\") OK — " + Object.keys(t).length + " exports");' && \
+	    cp "$$REPO_DIR/scripts/smoke.mjs" . && \
+	    $(NODE) smoke.mjs && \
 	    cd "$$REPO_DIR" && rm -rf /tmp/tuvl-smoke && rm -f "$$TARBALL"
 	@echo "✓ Smoke test passed"
 
