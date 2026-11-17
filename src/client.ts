@@ -7,7 +7,7 @@ import { CrudClient } from "./crud";
 import { RolesClient } from "./roles";
 import { toFormData } from "./form";
 import { parseSseEvents, parseSseStream } from "./sse";
-import { Transport, detail } from "./transport";
+import { Transport, detail, jsonBody } from "./transport";
 import {
   TERMINAL_STATUSES,
   isTokenEvent,
@@ -235,7 +235,7 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
     });
     const runId = response.headers.get("x-tuvl-run-id");
     if (response.status === 202) {
-      const run = (await response.json()) as Run;
+      const run = (await jsonBody(response, path)) as Run;
       return new RunHandle<T>(this as unknown as TuvlClient<WorkflowTypes>, run.run_id, run);
     }
     if (runId === null) throw new TuvlApiError(response.status, await detail(response), path);

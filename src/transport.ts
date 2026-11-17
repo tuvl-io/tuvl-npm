@@ -26,6 +26,20 @@ export async function detail(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * The JSON body of a successful response. A body that is not JSON (an HTML page from a proxy or a captive portal,
+ * a wrong `baseUrl`) is a {@link TuvlApiError} that names the path and the content type, not a bare `SyntaxError`.
+ */
+export async function jsonBody(response: Response, path: string): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error; // an abort or a dropped connection is not this
+    const kind = response.headers.get("content-type");
+    throw new TuvlApiError(response.status, `the response is not JSON${kind ? ` (${kind})` : ""}`, path);
+  }
+}
+
 type CallOptions = { token?: string; signal?: AbortSignal };
 
 export class Transport {
@@ -101,7 +115,7 @@ export class Transport {
     options?: Parameters<Transport["request"]>[2],
   ): Promise<T> {
     const response = await this.checked(method, path, options);
-    return (response.status === 204 ? undefined : await response.json()) as T;
+    return (response.status === 204 ? undefined : await jsonBody(response, path)) as T;
   }
 
   /** JSON GET. */

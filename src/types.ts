@@ -237,14 +237,17 @@ export class TuvlApiError extends Error {
   }
 }
 
-/** A run that ended at an error end (status ≥ 400), failed, or was aborted. */
+/**
+ * A run that ended at an error end (status ≥ 400), failed, or was aborted. The body is on `.body`, not in the
+ * message: messages reach logs and error trackers, and a body can be large or carry personal data.
+ */
 export class TuvlRunError extends Error {
   constructor(
     readonly status: number,
     readonly body: unknown,
     readonly runId: string | null,
   ) {
-    super(`tuvl run ${runId ?? "?"} ended with HTTP ${status}: ${JSON.stringify(body)}`);
+    super(`tuvl run ${runId ?? "?"} ended with HTTP ${status}`);
     this.name = "TuvlRunError";
   }
 }

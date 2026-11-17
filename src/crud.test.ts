@@ -43,6 +43,18 @@ describe("CrudClient", () => {
     return new CrudClient<Candidate>(transport, "candidate");
   }
 
+  describe("the model name", () => {
+    it("is encoded, so it cannot leave /models/", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse([]));
+      await new CrudClient(new Transport({ baseUrl: "http://srv" }), "../auth/me?x=").list();
+      expect(mockFetch.mock.calls[0][0]).toBe("http://srv/models/..%2Fauth%2Fme%3Fx%3D/");
+    });
+
+    it.each(["", ".", ".."])("refuses %j, which a URL would resolve to another path", (name) => {
+      expect(() => new CrudClient(new Transport({ baseUrl: "http://srv" }), name)).toThrow(TypeError);
+    });
+  });
+
   // ── list() ──────────────────────────────────────────────────────────────
 
   describe("list()", () => {

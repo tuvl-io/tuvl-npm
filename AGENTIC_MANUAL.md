@@ -43,8 +43,8 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 |---|---|
 | run reached an end with status < 400 | `execute` resolves the body; `wait()` resolves it |
 | run waits (`waiting_human`, `waiting_approval`, `paused`) or is still running after `sync_timeout` | `execute` resolves a `RunHandle` |
-| end with status ≥ 400, failed, aborted, compensated | rejects `TuvlRunError { status, body, runId }` |
-| 401 / 403 / 404 / 422 input | rejects `TuvlApiError { status, detail }` (`detail` is the server's `detail`, e.g. a list of `{ loc, msg }`) |
+| end with status ≥ 400, failed, aborted, compensated | rejects `TuvlRunError { status, body, runId }`; the message has only the run id and status, read `.body` for the body (it may carry personal data: log it deliberately) |
+| 401 / 403 / 404 / 422 input | rejects `TuvlApiError { status, detail }` (`detail` is the server's `detail`, e.g. a list of `{ loc, msg }`); so does a success answer that is not JSON (a proxy's page, a wrong `baseUrl`), with the path and content type |
 | any refused request from `crud(...)`, `roles()` or `TuvlAuth` (login, refresh, logout, `getMe`, `bootstrap`) | the same `TuvlApiError { status, detail, path }`; their helpers take `{ signal }` to cancel |
 
 ## 4. Scopes

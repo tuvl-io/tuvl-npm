@@ -24,6 +24,39 @@ function errorResponse(status: number, text = "bad request"): Response {
   return new Response(text, { status });
 }
 
+describe("Transport: a successful answer that is not JSON", () => {
+  const transport = () => new Transport({ baseUrl: "http://srv" });
+
+  it("is a TuvlApiError naming the path, the status and the content type, not a bare SyntaxError", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response("<html>Sign in to the wifi</html>", { status: 200, headers: { "Content-Type": "text/html" } }),
+    );
+    const error = await transport().get("/api/runs/r1").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(TuvlApiError);
+    expect(error).toMatchObject({ status: 200, path: "/api/runs/r1" });
+    expect((error as TuvlApiError).message).toContain("text/html");
+    expect((error as TuvlApiError).message).not.toContain("wifi"); // the page itself is not echoed
+  });
+
+  it("is the same error for an empty 200, without a content type", async () => {
+    mockFetch.mockResolvedValueOnce(new Response("", { status: 200 }));
+    await expect(transport().get("/x")).rejects.toMatchObject({ name: "TuvlApiError", status: 200, path: "/x" });
+  });
+
+  it("still answers undefined for a 204", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(transport().get("/x")).resolves.toBeUndefined();
+  });
+
+  it("lets an abort while the body is read through unchanged", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => controller.error(new DOMException("The operation was aborted.", "AbortError")),
+    });
+    mockFetch.mockResolvedValueOnce(new Response(body, { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(transport().get("/x")).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
 describe("Transport", () => {
   describe("constructor", () => {
     it("strips trailing slash from baseUrl", () => {
