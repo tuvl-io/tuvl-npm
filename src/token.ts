@@ -37,19 +37,33 @@ function decodeSegment(segment: string): unknown {
 
 /**
  * The claims of a tuvl access token, **without verifying it**. Throws when the string
- * isn't a JWT carrying tuvl's claims.
+ * isn't a JWT carrying tuvl's claims: a payload that is not an object, no `sub` or `iat`,
+ * `groups` or `scopes` that are not lists of strings, or an `exp` that is not a number.
  */
 export function readToken(token: string): TokenClaims {
   const parts = token.split(".");
   if (parts.length !== 3) throw new Error("not a tuvl access token (expected a JWT)");
-  let claims: Partial<TokenClaims>;
+  let payload: unknown;
   try {
-    claims = decodeSegment(parts[1]) as Partial<TokenClaims>;
+    payload = decodeSegment(parts[1]);
   } catch {
     throw new Error("not a tuvl access token (unreadable payload)");
   }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    throw new Error("not a tuvl access token (the payload is not an object)");
+  }
+  const claims = payload as Partial<TokenClaims>;
   if (typeof claims.sub !== "string" || typeof claims.iat !== "number") {
     throw new Error("not a tuvl access token (missing sub/iat)");
+  }
+  for (const key of ["groups", "scopes"] as const) {
+    const list: unknown = claims[key];
+    if (list !== undefined && !(Array.isArray(list) && list.every((item) => typeof item === "string"))) {
+      throw new Error(`not a tuvl access token (${key} is not a list of strings)`);
+    }
+  }
+  if (claims.exp !== undefined && typeof claims.exp !== "number") {
+    throw new Error("not a tuvl access token (exp is not a number)");
   }
   return { ...claims, groups: claims.groups ?? [], scopes: claims.scopes ?? [] } as TokenClaims;
 }

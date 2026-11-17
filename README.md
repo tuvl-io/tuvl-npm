@@ -82,6 +82,9 @@ workflow name with untyped input and output.
 | end with status ≥ 400, failure, abort | rejects `TuvlRunError { status, body, runId }` |
 | refused (401/403/404, input not matching `trigger.input` → 422) | rejects `TuvlApiError { status, detail }` |
 
+A `TuvlRunError`'s message has the run id and the status; the body is on `.body`, because messages reach logs and a body can
+be large or carry personal data. A success answer that is not JSON (a proxy's page, a wrong `baseUrl`) rejects with a
+`TuvlApiError` that names the path and the content type.
 `client.start(workflow, input)` starts without waiting and returns a `RunHandle`.
 
 **Files.** For a workflow whose trigger has `http.upload`, pass a `File` or `Blob` as the value of a
@@ -244,7 +247,8 @@ if (isTokenExpired(token)) {       // expired, or within 30 s of it
 }
 ```
 
-`readToken` does **not** verify the signature — use it for display, not for access decisions in
+`readToken` throws when the payload is not an object, `groups` or `scopes` are not lists of strings, or `exp` is not a number.
+It does **not** verify the signature — use it for display, not for access decisions in
 a client you don't control. The server is the authority, and only it knows about logouts and
 ended sessions. Services that verify tokens themselves can fetch tuvl's public key from
 `GET /auth/jwks.json` (`alg: EdDSA`).
@@ -365,7 +369,7 @@ await client.crud("candidate").delete("uuid");
 
 ### `client.crud<TRead, TCreate, TUpdate>(modelName)`
 
-Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased automatically. A refused call rejects with `TuvlApiError`.
+Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased and URL-encoded (an empty name, `.` and `..` throw a `TypeError`). A refused call rejects with `TuvlApiError`.
 
 ### `CrudListOptions`
 

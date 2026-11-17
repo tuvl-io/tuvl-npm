@@ -54,7 +54,11 @@ export class CrudClient<
     private readonly transport: Transport,
     modelName: string,
   ) {
-    this.basePath = `/models/${modelName.toLowerCase()}`;
+    // `.` and `..` survive encoding, and a URL resolves them to another path
+    if (modelName === "" || modelName === "." || modelName === "..") {
+      throw new TypeError(`tuvl: "${modelName}" is not a model name`);
+    }
+    this.basePath = `/models/${encodeURIComponent(modelName.toLowerCase())}`;
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
