@@ -137,10 +137,14 @@ describe("RunHandle", () => {
 
   it("follows events over SSE", async () => {
     const event = { run_id: "r1", seq: 3, ts: null, type: "agent_started", agent_id: "greet", engine: "code", tokens: null, latency_ms: null, payload: {} };
-    mockFetch.mockResolvedValueOnce(new Response(`id: 3\nevent: agent_started\ndata: ${JSON.stringify(event)}\n\n`));
+    const last = { ...event, seq: 4, type: "run_completed", agent_id: null, engine: null };
+    mockFetch.mockResolvedValueOnce(
+      new Response(`id: 3\nevent: agent_started\ndata: ${JSON.stringify(event)}\n\nid: 4\nevent: run_completed\ndata: ${JSON.stringify(last)}\n\n`),
+    );
     const seen = [];
     for await (const e of client().run("r1").events({ fromSeq: 3 })) seen.push(e);
-    expect(seen).toEqual([event]);
+    expect(seen).toEqual([event, last]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(call().url).toBe("http://srv/api/runs/r1/events?from_seq=3");
     expect((call().init.headers as Record<string, string>).Accept).toBe("text/event-stream");
   });
@@ -152,23 +156,24 @@ describe("live drafts", () => {
     `event: token_delta\ndata: ${JSON.stringify({ run_id: "r1", agent_id: agent, delta: text, replay })}\n\n`;
   const reset = (agent: string) => `event: token_reset\ndata: ${JSON.stringify({ run_id: "r1", agent_id: agent })}\n\n`;
   const started = `id: 1\nevent: agent_started\ndata: ${JSON.stringify({ run_id: "r1", seq: 1, type: "agent_started", agent_id: "write" })}\n\n`;
+  const finished = `id: 9\nevent: run_completed\ndata: ${JSON.stringify({ run_id: "r1", seq: 9, type: "run_completed", agent_id: null })}\n\n`;
 
   it("events() never asks for drafts, so it is the journal as before", async () => {
-    mockFetch.mockResolvedValueOnce(sse(started));
+    mockFetch.mockResolvedValueOnce(sse(started, finished));
     for await (const _ of client().run("r1").events()) void _;
     expect(call().url).toBe("http://srv/api/runs/r1/events");
   });
 
   it("stream() asks for drafts and yields both kinds, in order", async () => {
-    mockFetch.mockResolvedValueOnce(sse(started, delta("write", "Hi"), reset("write")));
+    mockFetch.mockResolvedValueOnce(sse(started, delta("write", "Hi"), reset("write"), finished));
     const seen = [];
     for await (const e of client().run("r1").stream()) seen.push(e.type);
     expect(call().url).toBe("http://srv/api/runs/r1/events?drafts=true");
-    expect(seen).toEqual(["agent_started", "token_delta", "token_reset"]);
+    expect(seen).toEqual(["agent_started", "token_delta", "token_reset", "run_completed"]);
   });
 
   it("tokens() yields only drafts, optionally one agent's", async () => {
-    mockFetch.mockResolvedValueOnce(sse(delta("a", "x"), started, delta("b", "y"), delta("a", "z")));
+    mockFetch.mockResolvedValueOnce(sse(delta("a", "x"), started, delta("b", "y"), delta("a", "z"), finished));
     const seen = [];
     for await (const e of client().run("r1").tokens({ agentId: "a" })) seen.push(e.type === "token_delta" ? e.delta : "reset");
     expect(seen).toEqual(["x", "z"]);
@@ -176,7 +181,7 @@ describe("live drafts", () => {
   });
 
   it("onToken() hands each piece to the listener and a reset to onReset", async () => {
-    mockFetch.mockResolvedValueOnce(sse(delta("write", "He", true), delta("write", "llo"), reset("write"), delta("write", "Hi")));
+    mockFetch.mockResolvedValueOnce(sse(delta("write", "He", true), delta("write", "llo"), reset("write"), delta("write", "Hi"), finished));
     let text = "";
     const resets: string[] = [];
     const live = client().run("r1").onToken((piece) => (text += piece), {
@@ -256,7 +261,7 @@ describe("aborting", () => {
   });
 
   it("onToken() lets go of the caller's signal when the stream ends", async () => {
-    mockFetch.mockResolvedValueOnce(new Response(draft("write", "hi")));
+    mockFetch.mockResolvedValueOnce(new Response(`${draft("write", "hi")}id: 2\nevent: run_completed\ndata: ${JSON.stringify({ run_id: "r1", seq: 2, type: "run_completed" })}\n\n`));
     const controller = new AbortController();
     const remove = vi.spyOn(controller.signal, "removeEventListener");
     const pieces: string[] = [];

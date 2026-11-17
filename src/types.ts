@@ -231,9 +231,43 @@ export class TuvlApiError extends Error {
     readonly status: number,
     readonly detail: unknown,
     readonly path: string,
+    /** Seconds the server asked the caller to wait before trying again (`Retry-After`, on a `429` or `503`). */
+    readonly retryAfter?: number,
   ) {
     super(`tuvl ${path} → HTTP ${status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
     this.name = "TuvlApiError";
+  }
+}
+
+/**
+ * A followed stream (`events()`, `stream()`, `tokens()`) could not be kept open: the connection dropped and the
+ * attempts to reopen it ran out. Resume with `events({ fromSeq: error.lastSeq + 1 })` (or from the start when
+ * `lastSeq` is undefined).
+ */
+export class TuvlStreamError extends Error {
+  readonly cause: unknown;
+  constructor(
+    readonly runId: string,
+    /** The last journal position that was delivered, if any. */
+    readonly lastSeq: number | undefined,
+    cause: unknown,
+  ) {
+    super(`tuvl run ${runId}: the event stream was lost${lastSeq === undefined ? "" : ` after seq ${lastSeq}`} and could not be reopened`);
+    this.name = "TuvlStreamError";
+    this.cause = cause;
+  }
+}
+
+/** `wait()` ran out of time with the run still going. */
+export class TuvlTimeoutError extends Error {
+  constructor(
+    readonly runId: string,
+    /** The run's status when it was last seen; undefined if it never could be read. */
+    readonly status: RunStatus | undefined,
+    readonly timeoutMs: number,
+  ) {
+    super(`tuvl run ${runId} is still ${status ?? "unknown"} after ${timeoutMs}ms`);
+    this.name = "TuvlTimeoutError";
   }
 }
 
