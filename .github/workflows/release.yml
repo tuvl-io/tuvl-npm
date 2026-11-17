@@ -1,6 +1,11 @@
 name: Release to npm
 
 # Pushing a tag vX.Y.Z (or vX.Y.Z-beta.N) that is on main publishes @tuvl/client at that version.
+#
+# No token is stored: npm trusted publishing (OIDC) lets npm check that the publish comes from this workflow, run for
+# the `npm-publish` environment. It is set up once on npmjs.com (@tuvl/client > Settings > Trusted publisher >
+# GitHub Actions: tuvl-io / tuvl-npm / release.yml / npm-publish); see CONTRIBUTING.md. It needs a cloud-hosted
+# runner, npm 11.5.1 or newer and Node 22.14 or newer.
 on:
   push:
     tags:
@@ -13,17 +18,17 @@ concurrency:
 jobs:
   publish:
     name: Build & publish @tuvl/client
-    # A private repository may use the self-hosted runner in CI_RUNS_ON; a public one never does,
-    # because a fork's pull request would run its code there.
-    runs-on: ${{ github.event.repository.private && fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
+    # restricted to v*.*.* tags in the repository's settings; the npm trusted publisher names it too
+    environment: npm-publish
 
     permissions:
       contents: read
-      id-token: write # npm provenance
+      id-token: write # npm trusted publishing and provenance
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the tag must be checked against main
 
@@ -44,16 +49,23 @@ jobs:
           fi
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           cache: "pnpm"
+
+      - name: Use npm 11.5.1 or newer
+        run: |
+          if ! node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)' "$(npm --version)"; then
+            npm install --global "npm@^11.5.1"
+          fi
+          npm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -70,22 +82,17 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # `npm publish`, not pnpm: setup-node's .npmrc token is used directly (pnpm does not
-      # forward NODE_AUTH_TOKEN, which causes E404 on scoped packages).
-      # Provenance needs a public repository on a GitHub-hosted runner; a private one publishes without.
+      - name: Smoke test the packed package
+        run: make smoke
+
+      # `npm publish`, not pnpm: only npm does the trusted-publishing exchange. No NODE_AUTH_TOKEN is set; --provenance
+      # makes a publish that cannot be attested fail instead of going out without it.
       - name: Publish to npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          ARGS=(--access public)
+          ARGS=(--access public --provenance)
           if [[ "$VERSION" == *-* ]]; then
             PRE="${VERSION#*-}"
             ARGS+=(--tag "${PRE%%.*}") # 2.1.0-beta.3 -> beta
           fi
-          if [[ "${{ github.event.repository.private }}" == "true" ]]; then
-            ARGS+=(--no-provenance)
-          else
-            ARGS+=(--provenance)
-          fi
           npm publish "${ARGS[@]}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
