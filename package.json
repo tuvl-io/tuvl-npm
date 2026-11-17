@@ -1,7 +1,7 @@
 {
   "name": "@tuvl/client",
-  "version": "2.1.0-beta.1",
-  "description": "TypeScript client for tuvl 2.0: start workflow runs, follow their journal over SSE, decide approvals, and generate typed workflow contracts from OpenAPI.",
+  "version": "2.1.0-beta.6",
+  "description": "TypeScript client for tuvl 2.x: start workflow runs, follow their journal over SSE, decide approvals, and generate typed workflow contracts from OpenAPI.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -24,7 +24,7 @@
     "NOTICE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsup",
@@ -59,7 +59,7 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "@biomejs/biome": "2.6.6",
+    "@biomejs/biome": "2.6.7",
     "@types/node": "^22.20.5",
     "@vitest/coverage-v8": "4.1.12",
     "tsup": "^9.0.0",
@@ -68,6 +68,6 @@
     "vitest": "^4.1.12"
   },
   "bin": {
-    "tuvl-client": "./dist/cli.js"
+    "tuvl-client": "dist/cli.js"
   }
 }

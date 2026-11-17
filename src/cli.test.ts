@@ -62,3 +62,61 @@ describe("tuvl-client generate", () => {
     expect(err).toHaveBeenCalledWith(expect.stringContaining("usage: tuvl-client generate"));
   });
 });
+
+describe("tuvl-client with arguments it does not understand", () => {
+  const out = () => join(dir, "out.ts");
+  const wroteNothing = async () => {
+    expect(mockFetch).not.toHaveBeenCalled();
+    await expect(readFile(out(), "utf8")).rejects.toThrow();
+  };
+
+  it.each([["--help"], ["-h"], ["generate", "--help"], ["generate", "-h"], ["generate", "--out", "x.ts", "--help"]])("%s prints the usage and exits 0, doing nothing", async (...args) => {
+    expect(await main(args.flat())).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("usage: tuvl-client generate"));
+    expect(err).not.toHaveBeenCalled();
+    await wroteNothing();
+  });
+
+  it("refuses an option it does not know, naming it, instead of using the default", async () => {
+    expect(await main(["generate", "--urll", "http://srv", "--out", out()])).toBe(2);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("unknown option --urll"));
+    await wroteNothing();
+  });
+
+  it.each([
+    [["generate", "--url"], "--url needs a value"],
+    [["generate", "--out", "--token", "t"], "--out needs a value"],
+    [["generate", "--file="], "--file needs a value"],
+  ])("refuses %j: a value is missing", async (args, message) => {
+    expect(await main(args)).toBe(2);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining(message));
+    await wroteNothing();
+  });
+
+  it("refuses a stray word and a file given together with a url", async () => {
+    expect(await main(["generate", "types.ts"])).toBe(2);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('unexpected argument "types.ts"'));
+    expect(await main(["generate", "--file", "a.json", "--url", "http://srv"])).toBe(2);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("not both"));
+    await wroteNothing();
+  });
+
+  it("takes --option=value as well as --option value", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(doc)));
+    expect(await main(["generate", "--url=http://srv:1/", `--out=${out()}`])).toBe(0);
+    expect(String(mockFetch.mock.calls[0][0])).toBe("http://srv:1/openapi.json");
+    expect(await readFile(out(), "utf8")).toContain("triage_ticket");
+  });
+
+  it("warns when the token is given on the command line, not when it comes from the environment", async () => {
+    mockFetch.mockImplementation(async () => new Response(JSON.stringify(doc)));
+    expect(await main(["generate", "--token", "tok", "--out", out()])).toBe(0);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("TUVL_TOKEN is safer"));
+    err.mockClear();
+    vi.stubEnv("TUVL_TOKEN", "from-env");
+    expect(await main(["generate", "--out", out()])).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+    expect(((mockFetch.mock.calls[1][1] as RequestInit).headers as Record<string, string>).Authorization).toBe("Bearer from-env");
+    vi.unstubAllEnvs();
+  });
+});

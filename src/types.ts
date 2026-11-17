@@ -61,12 +61,13 @@ export type RunStatus =
   | "completed"
   | "failed"
   | "aborted"
+  /** A failed or aborted run is undoing its steps. Not final, and nobody is being waited for: `wait()` keeps polling. */
+  | "compensating"
   | "compensated";
 
 export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "aborted", "compensated"];
 export const WAITING_STATUSES: readonly RunStatus[] = ["waiting_human", "waiting_approval", "paused"];
 
-/** A pending human form or tool-call approval (`GET /api/approvals`). */
 /** One webhook notification of a run (`client.runs.webhooks`). */
 export interface WebhookDelivery {
   id: string;
@@ -82,6 +83,7 @@ export interface WebhookDelivery {
   delivered_at: string | null;
 }
 
+/** A pending human form or tool-call approval (`GET /api/approvals`). */
 export interface Approval {
   approval_id: string;
   run_id: string;
@@ -89,6 +91,8 @@ export interface Approval {
   kind: "human" | "tool" | "pause";
   status: string;
   required_group: string | null;
+  /** Who the approval is for, when it was assigned to someone. */
+  assignee?: string | null;
   expires_at: string | null;
   created_at: string | null;
   decide_url: string;
@@ -115,8 +119,12 @@ export interface Run {
   tokens_used: number;
   created_at: string | null;
   updated_at: string | null;
-  status_url: string;
-  events_url: string;
+  /**
+   * Where to read the run. Absent from the `202` of a run started by an anonymous caller of a public trigger: nobody
+   * could read what these point to (only a token with `iam:admin` can read such a run).
+   */
+  status_url?: string;
+  events_url?: string;
   approval?: Approval;
 }
 
@@ -130,8 +138,18 @@ export type RunEventType =
   | "llm_turn"
   | "tool_call"
   | "tool_result"
+  | "memory_recalled"
+  | "memory_written"
+  | "memory_compacted"
+  | "map_started"
+  | "map_item"
+  | "map_finished"
+  | "parallel_started"
+  | "parallel_branch"
+  | "parallel_finished"
   | "decision"
   | "judge_verdict"
+  | "supervisor"
   | "approval_requested"
   | "approval_decided"
   | "paused"
@@ -146,6 +164,7 @@ export type RunEventType =
 /** One SSE event of `GET /api/runs/{id}/events` (spec §15.2). */
 export interface RunEvent {
   run_id: string;
+  /** Position in the run's journal. Increasing but not contiguous (one can be skipped): resume with `fromSeq: seq + 1`. */
   seq: number;
   ts: string | null;
   /** A {@link RunEventType}; kept open so newer servers don't break older clients. */
@@ -231,20 +250,57 @@ export class TuvlApiError extends Error {
     readonly status: number,
     readonly detail: unknown,
     readonly path: string,
+    /** Seconds the server asked the caller to wait before trying again (`Retry-After`, on a `429` or `503`). */
+    readonly retryAfter?: number,
   ) {
     super(`tuvl ${path} → HTTP ${status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`);
     this.name = "TuvlApiError";
   }
 }
 
-/** A run that ended at an error end (status ≥ 400), failed, or was aborted. */
+/**
+ * A followed stream (`events()`, `stream()`, `tokens()`) could not be kept open: the connection dropped and the
+ * attempts to reopen it ran out. Resume with `events({ fromSeq: error.lastSeq + 1 })` (or from the start when
+ * `lastSeq` is undefined).
+ */
+export class TuvlStreamError extends Error {
+  readonly cause: unknown;
+  constructor(
+    readonly runId: string,
+    /** The last journal position that was delivered, if any. */
+    readonly lastSeq: number | undefined,
+    cause: unknown,
+  ) {
+    super(`tuvl run ${runId}: the event stream was lost${lastSeq === undefined ? "" : ` after seq ${lastSeq}`} and could not be reopened`);
+    this.name = "TuvlStreamError";
+    this.cause = cause;
+  }
+}
+
+/** `wait()` ran out of time with the run still going. */
+export class TuvlTimeoutError extends Error {
+  constructor(
+    readonly runId: string,
+    /** The run's status when it was last seen; undefined if it never could be read. */
+    readonly status: RunStatus | undefined,
+    readonly timeoutMs: number,
+  ) {
+    super(`tuvl run ${runId} is still ${status ?? "unknown"} after ${timeoutMs}ms`);
+    this.name = "TuvlTimeoutError";
+  }
+}
+
+/**
+ * A run that ended at an error end (status ≥ 400), failed, or was aborted. The body is on `.body`, not in the
+ * message: messages reach logs and error trackers, and a body can be large or carry personal data.
+ */
 export class TuvlRunError extends Error {
   constructor(
     readonly status: number,
     readonly body: unknown,
     readonly runId: string | null,
   ) {
-    super(`tuvl run ${runId ?? "?"} ended with HTTP ${status}: ${JSON.stringify(body)}`);
+    super(`tuvl run ${runId ?? "?"} ended with HTTP ${status}`);
     this.name = "TuvlRunError";
   }
 }

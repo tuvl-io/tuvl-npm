@@ -1,5 +1,5 @@
 /**
- * @tuvl/client — TypeScript client for tuvl 2.0 (REST + SSE).
+ * @tuvl/client — TypeScript client for tuvl 2.x (REST + SSE).
  *
  * @example
  * ```ts
@@ -16,7 +16,7 @@
 
 export { RunHandle, TuvlClient } from "./client";
 export { isTokenEvent } from "./types";
-export { TuvlAuth } from "./auth";
+export { TuvlAuth, readOAuthToken } from "./auth";
 export { readToken, tokenExpiresAt, isTokenExpired } from "./token";
 export type { TokenClaims } from "./token";
 export type { AuthCallOptions, TuvlAuthOptions, BootstrapRequest } from "./auth";
@@ -33,7 +33,7 @@ export type {
 } from "./webhooks";
 export { parseSseEvents, parseSseStream } from "./sse";
 export { Transport } from "./transport";
-export { TERMINAL_STATUSES, TuvlApiError, TuvlRunError, WAITING_STATUSES } from "./types";
+export { TERMINAL_STATUSES, TuvlApiError, TuvlRunError, TuvlStreamError, TuvlTimeoutError, WAITING_STATUSES } from "./types";
 export type {
   Approval,
   ApprovalDecision,

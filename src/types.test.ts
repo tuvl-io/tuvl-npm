@@ -7,8 +7,9 @@ describe("errors", () => {
     expect(api).toBeInstanceOf(Error);
     expect(api.name).toBe("TuvlApiError");
     expect(api.message).toContain("HTTP 403");
-    const run = new TuvlRunError(422, { error: "bad" }, "r1");
-    expect(run.message).toContain('{"error":"bad"}');
+    const run = new TuvlRunError(422, { error: "bad", email: "ada@example.com" }, "r1");
+    expect(run.message).toBe("tuvl run r1 ended with HTTP 422"); // messages reach logs; the body stays on `.body`
+    expect(run.body).toEqual({ error: "bad", email: "ada@example.com" });
     expect(run.runId).toBe("r1");
   });
 

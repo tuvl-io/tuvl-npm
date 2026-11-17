@@ -4,9 +4,9 @@
 [![CI](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml/badge.svg)](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml)
 [![License](https://img.shields.io/npm/l/@tuvl/client)](LICENSE)
 
-> `@tuvl/client` 2.x targets engine `tuvl >= 2.0`: REST + Server-Sent Events
-> only. Role management (`client.roles()`) needs `tuvl >= 2.1.0b2`.
-> Breaking changes bump the major version ([SemVer](https://semver.org)).
+> `@tuvl/client` 2.x targets engine `tuvl 2.x` and is checked against 2.1: REST + Server-Sent Events
+> only. Role management (`client.roles()`) needs `tuvl >= 2.1.0b2`; a browser on another origin can read a throttled
+> sign-in's `Retry-After` from `tuvl >= 2.1.0b6`. Breaking changes bump the major version ([SemVer](https://semver.org)).
 
 TypeScript client for the [tuvl](https://tuvl.io) workflow engine: start workflow
 runs, follow their journal over SSE, operate them, decide approvals, and use
@@ -23,8 +23,8 @@ npm install @tuvl/client
 pnpm add @tuvl/client
 ```
 
-It runs on Node.js 18 or newer (or a browser, Deno, Bun or an edge runtime) and has no runtime dependencies. CI tests Node.js 22, 24 and 26; older runtimes are not tested. It talks to a
-tuvl `2.0` server, which you install with `uv tool install "tuvl[standard]"` ([install guide](https://tuvl.dev/getting-started/installation/)).
+It runs on Node.js 22 or newer (or a browser, Deno, Bun or an edge runtime) and has no runtime dependencies. CI tests Node.js 22, 24 and 26, the lines Node.js itself supports; older lines are end of life and not supported. It talks to a
+tuvl `2.x` server, which you install with `uv tool install "tuvl[standard]"` ([install guide](https://tuvl.dev/getting-started/installation/)).
 
 ---
 
@@ -45,7 +45,7 @@ const result = await client.execute("triage_ticket", {
 if (result instanceof RunHandle) {
   // the run waits on a person or outlived the trigger's sync_timeout
   for await (const event of result.events()) console.log(event.seq, event.type, event.agent_id);
-  console.log(await result.wait());
+  console.log(await result.wait({ untilWaiting: true, timeoutMs: 60_000 })); // undefined if it is still waiting on a person
 } else {
   console.log(result.category, result.urgency); // typed from the default end
 }
@@ -60,6 +60,10 @@ npx tuvl-client generate --url http://localhost:8885 --out src/tuvl.generated.ts
 # or from a saved document
 npx tuvl-client generate --file openapi.json
 ```
+
+`--url` defaults to `$TUVL_URL`, then `http://localhost:8885`; `--out` to `tuvl.generated.ts`. A server that needs a token reads it from
+`$TUVL_TOKEN` (`--token <token>` works too, but a flag is visible in the process list and the shell history, so the CLI warns). An option it does not know,
+a flag without its value, or `--file` together with `--url` exits 2 with a message, and `--help` prints the usage and writes nothing.
 
 Every trigger route in `/openapi.json` carries `x-tuvl-workflow`. The generator
 emits one `Workflows` type: per workflow its `input` (path, query and body
@@ -82,7 +86,18 @@ workflow name with untyped input and output.
 | end with status ≥ 400, failure, abort | rejects `TuvlRunError { status, body, runId }` |
 | refused (401/403/404, input not matching `trigger.input` → 422) | rejects `TuvlApiError { status, detail }` |
 
-`client.start(workflow, input)` starts without waiting and returns a `RunHandle`.
+A `TuvlRunError`'s message has the run id and the status; the body is on `.body`, because messages reach logs and a body can
+be large or carry personal data. A success answer that is not JSON (a proxy's page, a wrong `baseUrl`) rejects with a
+`TuvlApiError` that names the path and the content type. When the server asks the caller to wait (the login throttle's `429`,
+a `503`), `TuvlApiError.retryAfter` is the number of seconds it said (`Retry-After`); a browser on another origin can read it
+from tuvl 2.1.0b6. Never retry a login or a run start automatically: the client does not.
+`client.start(workflow, input)` starts without waiting and returns a `RunHandle`. `client.ready()` asks `GET /ready`: `true` when the server can serve
+requests, `false` for the `503` of one that is starting, shutting down or cannot reach its database (a script that waits for a server can poll it).
+
+A run started by an **anonymous** caller of a public trigger (no token) is answered with a `202` that has no `status_url` or
+`events_url` (`Run.status_url?`), and nobody but a token with `iam:admin` can read it afterwards. `get()`, `wait()` and the streams of
+its handle then reject with a `TuvlApiError` that says so, instead of a bare `401`. Give the client a token, and a run it starts can be read.
+`RunStatus` has a `compensating` state (a failed run undoing its steps); it is neither final nor a wait for a person, so `wait()` keeps polling.
 
 **Files.** For a workflow whose trigger has `http.upload`, pass a `File` or `Blob` as the value of a
 `file` input (an array for `list[file]`). The client then sends `multipart/form-data`: files as file parts,
@@ -118,7 +133,9 @@ export const POST = webhookHandler({
 For Express, give the route the raw body (`express.raw({ type: "application/json" })`) and call
 `verifyWebhook(req.body, req.header("tuvl-signature"), secrets)`; it throws `WebhookError` (answer 401) unless the
 signature matches, the body is untouched and the timestamp is within five minutes. Never verify a re-serialised
-body. `client.runs.webhooks(runId)` lists a run's notifications and `redeliverWebhook` sends one again.
+body. A notification is a few hundred bytes, so a body over 64 KiB is refused before anything is hashed (`maxBodyBytes`
+changes the limit; `WebhookError` reason `too_large`, and `webhookHandler` answers 413 without reading the rest), and so is a
+signature header over 2 KB or with more than ten candidates (`malformed`). `client.runs.webhooks(runId)` lists a run's notifications and `redeliverWebhook` sends one again.
 
 A phone should not hold the secret: receive on your backend, verify, then push only the run id to the device
 (FCM, APNs, ntfy). The app pulls the run with the user's own token.
@@ -154,13 +171,26 @@ await live.done;
 |---|---|
 | `id`, `run` | run id; the run as last seen |
 | `get()` | refresh (`GET /api/runs/{id}`) |
-| `events({ fromSeq?, follow? })` | async iterator of `RunEvent` over SSE: replay, then live until the run ends |
+| `events({ fromSeq?, follow? })` | async iterator of `RunEvent` over SSE: replay, then live until the run ends. A dropped connection is reopened from where it stopped; see [Following a run](#following-a-run) |
 | `onToken(listener, { onReset?, agentId? })` | call `listener(piece)` for each piece of an answer as it is written; returns `{ stop, done }` |
 | `tokens({ agentId? })`, `stream({ fromSeq?, follow? })` | async iterators of live drafts only, or of journal events and drafts together |
-| `wait({ intervalMs?, timeoutMs?, untilWaiting? })` | poll until the run ends; resolves the output or rejects `TuvlRunError`. `untilWaiting` also stops when it waits on a person |
+| `wait({ intervalMs?, maxIntervalMs?, timeoutMs?, untilWaiting? })` | poll until the run ends; resolves the output or rejects `TuvlRunError`. The poll slows from `intervalMs` (500 ms) to `maxIntervalMs` (5 s); five failures in a row are ridden out; `timeoutMs` rejects with `TuvlTimeoutError`. `untilWaiting` also stops when it waits on a person: without it, a run that waits on a person is polled for as long as they take |
 | `pause()`, `resume()`, `abort()`, `steer(message)` | operator control (scope `runs:control`) |
 
 `client.run(id)` gives a handle on any run.
+
+#### Following a run
+
+A followed stream that ends is not a run that ended: a proxy times the connection out, a pod restarts, the network drops.
+`events()`, `stream()` and `tokens()` therefore reopen the stream from the last position they read (the next `seq`, never a
+count: a run's `seq` has gaps), skip anything they already delivered, and stop when the run's last event arrives or the run
+is in a final state. They give up after five failed attempts in a row (about 15 s) and throw `TuvlStreamError { runId, lastSeq, cause }`;
+resume with `events({ fromSeq: error.lastSeq + 1 })`. A refusal (401, 403, 404) is thrown at once, and the first connection is not
+retried, so a wrong address is reported immediately. `follow: false` is a single pass and never reconnects.
+
+Live drafts (`onToken`, `tokens()`) have no position, so they cannot be resumed: after a reconnect the listener's `onReset` is called
+for the draft it was showing and the engine sends the draft so far again. `wait()` rejects with `TuvlTimeoutError { runId, status, timeoutMs }`
+when `timeoutMs` runs out.
 
 ### `client.runs`
 
@@ -183,15 +213,17 @@ Needs scope `approvals:decide` plus the agent's `required_group`.
 `{ run_id, seq, ts, type, agent_id, engine, tokens, latency_ms, payload }` — `type`
 is one of `run_queued`, `run_started`, `agent_started`, `agent_completed`,
 `signal`, `llm_turn`, `tool_call`, `tool_result`, `decision`, `judge_verdict`,
-`approval_requested`, `approval_decided`, `paused`, `resumed`, `checkpoint`,
+`memory_recalled`, `memory_written`, `memory_compacted`, `map_started`, `map_item`, `map_finished`, `parallel_started`,
+`parallel_branch`, `parallel_finished`, `supervisor`, `approval_requested`, `approval_decided`, `paused`, `resumed`, `checkpoint`,
 `compensation_started`, `compensation_completed`, `run_completed`,
-`run_failed`, `run_aborted`.
+`run_failed`, `run_aborted`. The type stays open (`string`), so an event a newer server adds does not break an older client.
+`seq` increases but has gaps: resume from the last one seen plus one, never from a count.
 
 ---
 
 ## Authentication
 
-The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path }`, the same as every other call. Role membership (list roles, add or remove a member, disable a role) is in [`client.roles()`](#role-management). The rest of the admin API (user and role CRUD, scopes, federation config) is development-time work, done with `tuvl iam` and the project's YAML, and is intentionally not wrapped.
+The `TuvlAuth` class wraps the most common `/auth/*` endpoints — `bootstrap`, `loginWithPassword`, `setPassword`, `getOAuthLoginUrl`, `getMe`, `refresh`, `logout` — so you don't have to hand-craft form bodies. Each takes an optional `{ signal }` to cancel it, and a refused request rejects with `TuvlApiError { status, detail, path, retryAfter? }`, the same as every other call. After a few wrong passwords the server throttles that login and that address and answers `429` with `Retry-After`; `retryAfter` is those seconds, and a sign-in form should show them. A password the server's rule refuses (8 characters at least, 72 bytes at most) is a `422`. Logout and refresh revoke the old token on every worker, with or without Redis. Role membership (list roles, add or remove a member, disable a role) is in [`client.roles()`](#role-management). The rest of the admin API (user and role CRUD, scopes, federation config) is development-time work, done with `tuvl iam` and the project's YAML, and is intentionally not wrapped.
 
 ### `new TuvlAuth(options)`
 
@@ -226,9 +258,30 @@ Only a server that mounts the `iam` API group answers this: the dev server, or o
 // Redirect the browser to the provider's login page
 window.location.href = auth.getOAuthLoginUrl("google"); // or "github" / "microsoft"
 
-// On the landing page (TUVL_OAUTH_UI_REDIRECT_URL), pick up the token:
-const token = new URLSearchParams(window.location.search).get("token")!;
+// On the landing page (TUVL_OAUTH_UI_REDIRECT_URL) the token is in the URL fragment, which never reaches a server log.
+// readOAuthToken reads it and, with clear: true, takes it out of the address bar and the history:
+import { readOAuthToken } from "@tuvl/client";
+const token = readOAuthToken({ clear: true }); // undefined when the page was not reached by a sign-in
+if (token) client.setToken(token);
 ```
+
+Open the start URL in the browser that will receive the callback: the server sets a short-lived cookie when the flow starts and
+refuses a callback that arrives without it (`tuvl >= 2.1`). Without a `TUVL_OAUTH_UI_REDIRECT_URL` the callback answers with JSON
+(`{ access_token, token_type }`), the form a CLI or a server uses.
+
+### Set a password from a link
+
+An administrator invites a user with `tuvl iam users invite` (or `POST /auth/admin/users/{id}/invite`) and gives them a link that holds a
+one-time token. The page behind the link sets the password with it; no sign-in is needed, because the token is the credential:
+
+```ts
+const auth = new TuvlAuth({ baseUrl: "http://localhost:8885" });
+await auth.setPassword(tokenFromTheLink, newPassword); // 204; throws TuvlApiError 400 (used, expired or unknown) or 422 (the password rule)
+const { access_token } = await auth.loginWithPassword(email, newPassword);
+```
+
+The token works once and expires; setting a password ends the user's open sessions. `auth.jwksUrl()` is where the server publishes its signing
+keys (`/auth/jwks.json`), for a service that verifies tokens itself.
 
 ### Read the token locally
 
@@ -244,7 +297,8 @@ if (isTokenExpired(token)) {       // expired, or within 30 s of it
 }
 ```
 
-`readToken` does **not** verify the signature — use it for display, not for access decisions in
+`readToken` throws when the payload is not an object, `groups` or `scopes` are not lists of strings, or `exp` is not a number.
+It does **not** verify the signature — use it for display, not for access decisions in
 a client you don't control. The server is the authority, and only it knows about logouts and
 ended sessions. Services that verify tokens themselves can fetch tuvl's public key from
 `GET /auth/jwks.json` (`alg: EdDSA`).
@@ -326,7 +380,7 @@ Pages are ordered by email; pass a page's `next_cursor` as `cursor` for the next
 
 ## CRUD — model data access
 
-`client.crud(modelName)` returns a `CrudClient` that targets the auto-generated REST endpoints at `/models/{modelname}/`. The token and base URL are shared with the parent `TuvlClient`. In tuvl 2.0 CRUD is off by default: a model opts in per operation with `spec.api.crud: [list, read, create, update, delete]`.
+`client.crud(modelName)` returns a `CrudClient` that targets the auto-generated REST endpoints at `/models/{modelname}/`. The token and base URL are shared with the parent `TuvlClient`. In tuvl 2.x CRUD is off by default: a model opts in per operation with `spec.api.crud: [list, read, create, update, delete]`.
 
 ```ts
 import { TuvlClient } from "@tuvl/client";
@@ -365,7 +419,16 @@ await client.crud("candidate").delete("uuid");
 
 ### `client.crud<TRead, TCreate, TUpdate>(modelName)`
 
-Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased automatically. A refused call rejects with `TuvlApiError`.
+Returns a `CrudClient<TRead, TCreate, TUpdate>` instance. All type parameters default to `unknown` / `Partial<TRead>`. The model name is lowercased and URL-encoded (an empty name, `.` and `..` throw a `TypeError`). A refused call rejects with `TuvlApiError`.
+
+What a server from `tuvl 2.1` does that the client passes through unchanged:
+
+- Fields the model marks `secure: true` are left out of every read (`list`, `get`, and records embedded with `include`) unless the
+  token has `{modelname}:read_secure` or `iam:admin`; type them as optional.
+- `include` needs read access to the related model too, else `403`; the embedded records now arrive.
+- `update()` is a `PATCH`: a field you leave out is untouched, and `null` clears a nullable field (`422` on one that is required).
+- Lists come in a stable order (by primary key); `limit` and `offset` page through them.
+- A write the database refuses answers `409` (a unique value is taken) or `422` (a required value is missing).
 
 ### `CrudListOptions`
 

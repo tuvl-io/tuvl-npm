@@ -1,6 +1,6 @@
 # @tuvl/client Agent Rules
 
-This repository uses the `@tuvl/client` 2.x SDK to talk to a tuvl 2.0 server. As an AI agent working in this codebase, follow these rules.
+This repository uses the `@tuvl/client` 2.x SDK to talk to a tuvl 2.x server (checked against 2.1). As an AI agent working in this codebase, follow these rules.
 
 ## 1. Do Not Invent Methods
 The public API is:
@@ -8,7 +8,8 @@ The public API is:
 - Webhook receiving: `verifyWebhook`, `webhookHandler`, `WebhookError`.
 - Live drafts: `RunHandle.onToken`, `tokens`, `stream`; `runs.tokens`, `runs.stream`; `isTokenEvent`.
 - `RunHandle`: `get`, `events`, `wait`, `pause`, `resume`, `abort`, `steer`.
-- `TuvlAuth`: `bootstrap` (dev server only), `loginWithPassword`, `getMe`, `getOAuthLoginUrl`, `refresh`, `logout`.
+- `TuvlAuth`: `bootstrap` (dev server only), `loginWithPassword`, `setPassword`, `getMe`, `getOAuthLoginUrl`, `refresh`, `logout`, `jwksUrl`; `readOAuthToken` reads the token on an OAuth landing page.
+- `client.ready()` (`GET /ready`).
 - `client.roles()`: `isAvailable`, `list`, `members`, `findUsers`, `addUser`, `removeUser`, `setActive`/`disable`/`enable`. Needs tuvl >= 2.1.0b2 with the `roles` group exposed and `roles:manage`. It cannot create roles, change scopes or create users; those are development-time (`tuvl iam`).
 The 1.x methods `executeVersioned`, `resumeWorkflow`, `getManifest`, `listWorkflows` no longer exist.
 
@@ -18,7 +19,8 @@ Generate `Workflows` with `npx tuvl-client generate` and construct `new TuvlClie
 ## 3. Results and Errors
 - `execute()` resolves the end's body, or a `RunHandle` (check `result instanceof RunHandle`) when the run waits on a person/approval or outlives the trigger's `sync_timeout`.
 - An end with status ≥ 400, a failed or aborted run rejects with `TuvlRunError` (`status`, `body`, `runId`).
-- A refused request (auth, unknown workflow, input not matching `trigger.input`) rejects with `TuvlApiError` (`status`, `detail`).
+- A refused request (auth, unknown workflow, input not matching `trigger.input`) rejects with `TuvlApiError` (`status`, `detail`, `retryAfter` when the server said how long to wait).
+- `wait({ timeoutMs })` rejects with `TuvlTimeoutError`; a followed stream that cannot be reopened rejects with `TuvlStreamError` (`lastSeq`). A run that waits on a person needs `wait({ untilWaiting: true })`, a `timeoutMs` or a `signal`.
 
 ## 4. People and Approvals
 Answer a waiting run with `client.approvals.decide(approvalId, { values })` (human forms) or `{ decision: "approve" | "reject" | "edit", edited_args? }` (tool calls), then `handle.wait()`.

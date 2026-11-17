@@ -8,6 +8,8 @@ function jwt(claims: Record<string, unknown>): string {
   return `${b64url({ alg: "EdDSA", typ: "JWT", kid: "k1" })}.${b64url(claims)}.c2lnbmF0dXJl`;
 }
 
+const raw = (payload: unknown) => `${b64url({ alg: "EdDSA", typ: "JWT" })}.${b64url(payload)}.c2lnbmF0dXJl`;
+
 const base = { iss: "tuvl", sub: "3f6c-uuid", groups: ["reviewers"], scopes: ["approvals:decide"], iat: 1760000000.123 };
 
 describe("readToken", () => {
@@ -34,6 +36,25 @@ describe("readToken", () => {
     [jwt({ iss: "tuvl", groups: [] }), /missing sub\/iat/],
   ])("refuses %s", (token, message) => {
     expect(() => readToken(token)).toThrow(message);
+  });
+});
+
+describe("readToken checks the shape of the claims", () => {
+  it.each([
+    ["a null payload", raw(null), /payload is not an object/],
+    ["a list as payload", raw([1, 2]), /payload is not an object/],
+    ["a string as payload", raw("hello"), /payload is not an object/],
+    ["groups as a string", jwt({ ...base, groups: "reviewers" }), /groups is not a list of strings/],
+    ["a number among the groups", jwt({ ...base, groups: ["a", 1] }), /groups is not a list of strings/],
+    ["scopes as a string", jwt({ ...base, scopes: "approvals:decide" }), /scopes is not a list of strings/],
+    ["a text exp", jwt({ ...base, exp: "tomorrow" }), /exp is not a number/],
+    ["a null exp", jwt({ ...base, exp: null }), /exp is not a number/],
+  ])("refuses %s", (_name, token, message) => {
+    expect(() => readToken(token)).toThrow(message);
+  });
+
+  it("no longer reads a token with a text exp as one that never expires", () => {
+    expect(() => isTokenExpired(jwt({ ...base, exp: "never" }))).toThrow(/exp is not a number/);
   });
 });
 

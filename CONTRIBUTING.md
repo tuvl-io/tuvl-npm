@@ -4,8 +4,8 @@ Thank you for your interest in `@tuvl/client`, the TypeScript client for the [tu
 
 ## Setup
 
-Developing needs Node.js 22.18 or newer (tsup 9 requires it) and [pnpm](https://pnpm.io) 10. CI runs the supported LTS lines (22, 24, 26). The
-published package has no runtime dependencies and is built for Node.js 18 and newer; older runtimes than the CI ones are
+Developing needs Node.js 22.18 or newer (tsup 9 requires it) and [pnpm](https://pnpm.io) 10. CI runs the supported LTS lines (22, 24 and 26). The
+published package has no runtime dependencies and is built for Node.js 22 and newer; older lines are end of life and are
 not tested.
 
 ```bash
@@ -73,8 +73,19 @@ Maintainers only.
 3. Tag the merge commit on `main` and push the tag: `git fetch && git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
 
 The release workflow refuses a tag that is not on `main` or does not match `package.json`, then typechecks, lints, tests,
-builds and runs `npm publish` (with provenance). A prerelease goes out under its own dist-tag (`beta`, `rc`, …), so it never
-moves `latest`.
+builds, smoke-tests the packed package and runs `npm publish` with provenance. A prerelease goes out under its own dist-tag
+(`beta`, `rc`, …), so it never moves `latest`.
+
+**Publishing has no stored token.** npm trusted publishing (OIDC) checks that the publish comes from `release.yml` running for
+the `npm-publish` environment, which the repository restricts to `v*.*.*` tags. It was set up once, by the package owner:
+
+- on npmjs.com, `@tuvl/client` > Settings > Trusted publisher > GitHub Actions: organization or user `tuvl-io`, repository
+  `tuvl-npm`, workflow filename `release.yml`, environment `npm-publish` (npm does not check this when it is saved; a mistake
+  shows up as a failed publish, and a trusted publisher that has not published within 2 days of being added expires);
+- on GitHub, the `npm-publish` environment (Settings > Environments), deployments limited to the tag pattern `v*.*.*`.
+
+It needs a GitHub-hosted runner, Node 22.14 or newer and npm 11.5.1 or newer (the workflow installs npm 11 if the runner's is older).
+Do not add an `NPM_TOKEN`. Never re-run a release for a version that was published: npm refuses to publish a version twice.
 
 ## Security
 
