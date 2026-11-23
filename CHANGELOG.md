@@ -32,7 +32,7 @@ It needs Node.js 22 or newer and talks to a tuvl 2.x server; it was checked agai
   the landing page's URL fragment; **`client.ready()`** asks `GET /ready`; **`TuvlAuth.jwksUrl()`** names where the signing keys are published.
 - **`verifyWebhook` and `webhookHandler` take `maxBodyBytes`** (default 64 KiB); a larger body is `WebhookError("too_large")`, and the handler answers `413`.
 - Types follow the engine: `RunStatus` has `compensating`, `RunEventType` lists the ten events the journal writes since 2.0 (`memory_*`, `map_*`, `parallel_*`, `supervisor`),
-  `Approval` has `assignee`.
+  `Approval` has `assignee` and `required_scope` (the scope a decider must hold, sent by tuvl after 2.1.0b6).
 - `tuvl-client generate --help`; `--option=value`.
 
 ### Changed
