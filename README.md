@@ -206,7 +206,8 @@ await client.approvals.decide(approval.approval_id, { values: { approved: true }
 await client.approvals.decide(toolApproval.approval_id, { decision: "edit", edited_args: { amount: 10 } }); // tool call
 ```
 
-Needs scope `approvals:decide` plus the agent's `required_group`.
+Needs scope `approvals:decide` plus the agent's `required_group` and/or `required_scope` (`iam:admin` passes both); when either is set,
+the principal who started the run cannot decide. An `Approval` also carries `assignee`, who it was assigned to, when it was.
 
 ### `RunEvent`
 

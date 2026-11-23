@@ -61,7 +61,7 @@ your code ──TuvlClient──▶ POST /api/workflows/{name}/runs ──▶ du
 | read your own runs | none (the caller who started a run reads it) |
 | read and list any run of the tenant (a webhook receiver, a dashboard) | `runs:read` (`iam:admin` reads all) |
 | pause / resume / abort / steer | `runs:control` |
-| decide approvals | `approvals:decide` + the agent's `required_group` |
+| decide approvals | `approvals:decide` + the agent's `required_group` and/or `required_scope` |
 | CRUD | `{model}:read` / `{model}:write` / `{model}:delete` |
 
 ## 5. Rules

@@ -67,10 +67,11 @@ describe("the types follow the engine", () => {
     expect(WAITING_STATUSES).not.toContain("compensating");
   });
 
-  it("an anonymous run has no urls, and an approval can name its assignee", () => {
+  it("an anonymous run has no urls, and an approval can name its assignee and required scope", () => {
     expectTypeOf<Run["status_url"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<Run["events_url"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<Approval["assignee"]>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<Approval["required_scope"]>().toEqualTypeOf<string | null | undefined>();
     expectTypeOf<TuvlApiError["retryAfter"]>().toEqualTypeOf<number | undefined>();
   });
 });

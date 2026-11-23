@@ -91,6 +91,8 @@ export interface Approval {
   kind: "human" | "tool" | "pause";
   status: string;
   required_group: string | null;
+  /** The scope a decider must hold, as well as or instead of `required_group` (tuvl > 2.1.0b6). */
+  required_scope?: string | null;
   /** Who the approval is for, when it was assigned to someone. */
   assignee?: string | null;
   expires_at: string | null;
