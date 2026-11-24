@@ -12,7 +12,7 @@ this project follows [Semantic Versioning](https://semver.org). Releases are cut
 
 ### Changed
 
-- **The website is now tuvl.org.** The `homepage` field on npm and the README and CONTRIBUTING links point to `https://tuvl.org`. No code
+- **The website is now tuvl.org.** The `homepage` field on npm and the README and CONTRIBUTING links point to `https://tuvl.org`. The README credits tuvl.io as the maintainer. No code
   changes. `tuvl.io` keeps serving the same site, and the `tuvl.io` email addresses are unchanged.
 
 ---
