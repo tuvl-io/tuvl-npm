@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in `@tuvl/client`, the TypeScript client for the [tuvl](https://tuvl.io) workflow engine.
+Thank you for your interest in `@tuvl/client`, the TypeScript client for the [tuvl](https://tuvl.org) workflow engine.
 
 ## Setup
 

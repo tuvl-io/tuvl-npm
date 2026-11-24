@@ -8,7 +8,7 @@
 > only. Role management (`client.roles()`), `required_scope` on approvals, and a throttled sign-in's `Retry-After` read by a browser
 > on another origin need `tuvl >= 2.1.0`. Breaking changes bump the major version ([SemVer](https://semver.org)).
 
-TypeScript client for the [tuvl](https://tuvl.io) workflow engine: start workflow
+TypeScript client for the [tuvl](https://tuvl.org) workflow engine: start workflow
 runs, follow their journal over SSE, operate them, decide approvals, and use
 typed CRUD on models. `npx tuvl-client generate` turns the server's
 `/openapi.json` into typed workflow inputs and outputs.
