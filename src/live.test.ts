@@ -64,7 +64,7 @@ describe.skipIf(!url)("live server", () => {
 });
 
 /**
- * Role membership against a server that mounts the `roles` group (tuvl >= 2.1.0b2, `roles` in `spec.api.expose`).
+ * Role membership against a server that mounts the `roles` group (tuvl >= 2.1.0, `roles` in `spec.api.expose`).
  * TUVL_LIVE_MANAGER_TOKEN needs `roles:manage`; TUVL_LIVE_ROLE names a role the manager may change
  * (default `reviewers`) and TUVL_LIVE_USER a user who does not hold it yet (default `bob@example.com`).
  * The test restores what it changes.

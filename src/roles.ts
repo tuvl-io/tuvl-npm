@@ -1,7 +1,7 @@
 /**
  * RolesClient — role membership for an application's own screen.
  *
- * Wraps the server's `roles` API group (`/auth/roles`, tuvl >= 2.1.0b2): list the roles, find users,
+ * Wraps the server's `roles` API group (`/auth/roles`, tuvl >= 2.1.0): list the roles, find users,
  * add or remove a member, disable or re-enable a role. That is all it does. Creating or deleting roles,
  * changing what a role grants, creating users and federation are development-time work (`RoleSeed`,
  * `tuvl iam`) and have no route, so they are not wrapped here.

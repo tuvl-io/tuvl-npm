@@ -10,7 +10,7 @@ The public API is:
 - `RunHandle`: `get`, `events`, `wait`, `pause`, `resume`, `abort`, `steer`.
 - `TuvlAuth`: `bootstrap` (dev server only), `loginWithPassword`, `setPassword`, `getMe`, `getOAuthLoginUrl`, `refresh`, `logout`, `jwksUrl`; `readOAuthToken` reads the token on an OAuth landing page.
 - `client.ready()` (`GET /ready`).
-- `client.roles()`: `isAvailable`, `list`, `members`, `findUsers`, `addUser`, `removeUser`, `setActive`/`disable`/`enable`. Needs tuvl >= 2.1.0b2 with the `roles` group exposed and `roles:manage`. It cannot create roles, change scopes or create users; those are development-time (`tuvl iam`).
+- `client.roles()`: `isAvailable`, `list`, `members`, `findUsers`, `addUser`, `removeUser`, `setActive`/`disable`/`enable`. Needs tuvl >= 2.1.0 with the `roles` group exposed and `roles:manage`. It cannot create roles, change scopes or create users; those are development-time (`tuvl iam`).
 The 1.x methods `executeVersioned`, `resumeWorkflow`, `getManifest`, `listWorkflows` no longer exist.
 
 ## 2. Types Come From the Server

@@ -22,7 +22,7 @@ export interface MeResponse {
 }
 
 
-// ── Roles (the `roles` API group, tuvl >= 2.1.0b2) ───────────────────────────
+// ── Roles (the `roles` API group, tuvl >= 2.1.0) ───────────────────────────
 
 /** A role as `GET /auth/roles` lists it. `scopes` is read-only here; it is set in the project. */
 export interface Role {
@@ -91,7 +91,7 @@ export interface Approval {
   kind: "human" | "tool" | "pause";
   status: string;
   required_group: string | null;
-  /** The scope a decider must hold, as well as or instead of `required_group` (tuvl > 2.1.0b6). */
+  /** The scope a decider must hold, as well as or instead of `required_group` (tuvl >= 2.1.0). */
   required_scope?: string | null;
   /** Who the approval is for, when it was assigned to someone. */
   assignee?: string | null;

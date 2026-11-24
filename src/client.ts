@@ -361,7 +361,7 @@ export class TuvlClient<W extends WorkflowTypes = WorkflowTypes> {
 
   /**
    * Role membership: list roles, find users, add or remove a member, disable or enable a role.
-   * Needs a server that mounts the `roles` API group (tuvl >= 2.1.0b2, `roles` in `spec.api.expose`)
+   * Needs a server that mounts the `roles` API group (tuvl >= 2.1.0, `roles` in `spec.api.expose`)
    * and a token with `roles:manage`. See {@link RolesClient}.
    */
   roles(): RolesClient {
