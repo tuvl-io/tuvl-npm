@@ -5,8 +5,8 @@
 [![License](https://img.shields.io/npm/l/@tuvl/client)](LICENSE)
 
 > `@tuvl/client` 2.x targets engine `tuvl 2.x` and is checked against 2.1: REST + Server-Sent Events
-> only. Role management (`client.roles()`) needs `tuvl >= 2.1.0b2`; a browser on another origin can read a throttled
-> sign-in's `Retry-After` from `tuvl >= 2.1.0b6`. Breaking changes bump the major version ([SemVer](https://semver.org)).
+> only. Role management (`client.roles()`), `required_scope` on approvals, and a throttled sign-in's `Retry-After` read by a browser
+> on another origin need `tuvl >= 2.1.0`. Breaking changes bump the major version ([SemVer](https://semver.org)).
 
 TypeScript client for the [tuvl](https://tuvl.io) workflow engine: start workflow
 runs, follow their journal over SSE, operate them, decide approvals, and use
@@ -90,7 +90,7 @@ A `TuvlRunError`'s message has the run id and the status; the body is on `.body`
 be large or carry personal data. A success answer that is not JSON (a proxy's page, a wrong `baseUrl`) rejects with a
 `TuvlApiError` that names the path and the content type. When the server asks the caller to wait (the login throttle's `429`,
 a `503`), `TuvlApiError.retryAfter` is the number of seconds it said (`Retry-After`); a browser on another origin can read it
-from tuvl 2.1.0b6. Never retry a login or a run start automatically: the client does not.
+from tuvl 2.1.0. Never retry a login or a run start automatically: the client does not.
 `client.start(workflow, input)` starts without waiting and returns a `RunHandle`. `client.ready()` asks `GET /ready`: `true` when the server can serve
 requests, `false` for the `503` of one that is starting, shutting down or cannot reach its database (a script that waits for a server can poll it).
 
