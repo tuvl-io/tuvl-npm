@@ -8,6 +8,15 @@ this project follows [Semantic Versioning](https://semver.org). Releases are cut
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **The website is now tuvl.org.** The `homepage` field on npm and the README and CONTRIBUTING links point to `https://tuvl.org`. The README credits tuvl.io as the maintainer. No code
+  changes. `tuvl.io` keeps serving the same site, and the `tuvl.io` email addresses are unchanged.
+
+---
+
 ## [2.1.0-beta.6] — 2026-11-17
 
 **The 2.1 client: a beta that pairs with `tuvl 2.1.0b6`.** The version number follows the engine's beta (2.1.0-beta.1 and 2.1.0-beta.2 were

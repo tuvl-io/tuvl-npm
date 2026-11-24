@@ -36,7 +36,7 @@
     "lint": "biome lint ."
   },
   "author": "tuvl.io <developer@tuvl.io>",
-  "homepage": "https://tuvl.io",
+  "homepage": "https://tuvl.org",
   "bugs": {
     "url": "https://github.com/tuvl-io/tuvl-npm/issues"
   },

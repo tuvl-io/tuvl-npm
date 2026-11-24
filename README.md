@@ -4,11 +4,13 @@
 [![CI](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml/badge.svg)](https://github.com/tuvl-io/tuvl-npm/actions/workflows/ci.yml)
 [![License](https://img.shields.io/npm/l/@tuvl/client)](LICENSE)
 
+Maintained by [tuvl.io](https://tuvl.io/?utm_source=npm&utm_medium=readme&utm_campaign=maintained-by).
+
 > `@tuvl/client` 2.x targets engine `tuvl 2.x` and is checked against 2.1: REST + Server-Sent Events
 > only. Role management (`client.roles()`), `required_scope` on approvals, and a throttled sign-in's `Retry-After` read by a browser
 > on another origin need `tuvl >= 2.1.0`. Breaking changes bump the major version ([SemVer](https://semver.org)).
 
-TypeScript client for the [tuvl](https://tuvl.io) workflow engine: start workflow
+TypeScript client for the [tuvl](https://tuvl.org) workflow engine: start workflow
 runs, follow their journal over SSE, operate them, decide approvals, and use
 typed CRUD on models. `npx tuvl-client generate` turns the server's
 `/openapi.json` into typed workflow inputs and outputs.
